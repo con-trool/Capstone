@@ -62,7 +62,7 @@ if ($view_mode === 'pending') {
         // Other roles see requests based on approval workflow
         $sql = "SELECT br.*, a.name as requester_name, a.username_email as requester_email, 
                        d.college, d.budget_deck,
-                       CASE WHEN ap.approver_id = ? THEN 'can_approve' ELSE 'view_only' END as user_role,
+                       CASE WHEN ap.approver_id = ? AND ap.status = 'pending' THEN 'can_approve' ELSE 'view_only' END as user_role,
                        COALESCE(ba_count.amendment_count, 0) as amendment_count
                 FROM budget_request br 
                 LEFT JOIN account a ON br.account_id = a.id 

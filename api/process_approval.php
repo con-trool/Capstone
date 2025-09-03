@@ -39,14 +39,13 @@ try {
     }
 
     $stmt = $pdo->prepare("
-        SELECT br.*, ap.status as approval_status 
+        SELECT br.*, ap.status as approval_status, ap.approver_id, ap.approval_level 
         FROM budget_request br
         LEFT JOIN approval_progress ap ON br.request_id = ap.request_id 
             AND ap.approval_level = br.current_approval_level 
-            AND ap.approver_id = ?
         WHERE br.request_id = ?
     ");
-    $stmt->execute([$approver_id, $request_id]);
+    $stmt->execute([$request_id]);
     $request_data = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$request_data) {
@@ -59,6 +58,20 @@ try {
 
     if ($request_data['approval_status'] !== 'pending') {
         throw new Exception('This request is not pending your approval');
+    }
+
+    // If pending but assigned to different approver, allow reassignment when current user matches expected role
+    if (!empty($request_data['approver_id']) && (int)$request_data['approver_id'] !== (int)$approver_id) {
+        $stmt = $pdo->prepare("SELECT approver_role FROM approval_workflow WHERE department_code = ? AND approval_level = ? LIMIT 1");
+        $stmt->execute([$request_data['department_code'], $request_data['approval_level']]);
+        $expected_role = $stmt->fetchColumn();
+
+        if ($expected_role && $expected_role === $_SESSION['role']) {
+            $stmt = $pdo->prepare("UPDATE approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ?");
+            $stmt->execute([$approver_id, $request_id, $request_data['approval_level']]);
+        } else {
+            throw new Exception('This request is assigned to a different approver');
+        }
     }
 
     if ($request_data['workflow_complete']) {

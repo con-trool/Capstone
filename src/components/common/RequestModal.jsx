@@ -126,7 +126,21 @@ const RequestModal = ({ request, onClose, userRole }) => {
               </div>
             )}
 
-            {['approver','department_head','dean','vp_finance'].includes(userRole) && details.status === 'pending' && (
+            {/* Assignment banner */}
+            {details.assigned_approver && request.status === 'pending' && (
+              <div className={`assignment-banner ${details.can_act ? 'you' : 'other'}`}>
+                {details.can_act ? (
+                  <span>You are the assigned approver for the current level.</span>
+                ) : (
+                  <span>
+                    Current level assigned to: {details.assigned_approver.name || 'Unassigned'}
+                    {details.assigned_approver.role ? ` (${details.assigned_approver.role})` : ''}
+                  </span>
+                )}
+              </div>
+            )}
+
+            {['approver','department_head','dean','vp_finance'].includes(userRole) && details.status === 'pending' && details.can_act && (
               <div className="actions">
                 {actionError && <div className="error" style={{marginBottom: '10px'}}>{actionError}</div>}
                 <button className="approve" disabled={actionLoading} onClick={() => takeAction('approve')}>Approve</button>
@@ -276,6 +290,22 @@ const RequestModal = ({ request, onClose, userRole }) => {
         .status-more_info_requested {
           color: #856404;
           font-weight: bold;
+        }
+        .assignment-banner {
+          margin-top: 10px;
+          padding: 10px 12px;
+          border-radius: 6px;
+          font-size: 14px;
+        }
+        .assignment-banner.you {
+          background: #e6f4ea;
+          color: #0f5132;
+          border: 1px solid #badbcc;
+        }
+        .assignment-banner.other {
+          background: #fde2e1;
+          color: #842029;
+          border: 1px solid #f5c2c7;
         }
         .actions { display: flex; gap: 10px; margin-top: 16px; }
         .actions button { padding: 8px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }

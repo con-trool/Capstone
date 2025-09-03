@@ -56,6 +56,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['user_id']
         ]);
 
+        // If this request was in 'more_info_requested', resume the workflow
+        require_once '../../workflow_manager.php';
+        $workflow = new WorkflowManager($pdo);
+
+        // Find the level that requested info
+        $stmt = $pdo->prepare("SELECT approval_level FROM approval_progress WHERE request_id = ? AND status = 'request_info' ORDER BY approval_level DESC LIMIT 1");
+        $stmt->execute([$request_id]);
+        $requesting_level = $stmt->fetchColumn();
+
+        if (!empty($requesting_level)) {
+            $workflow->resumeWorkflowAfterInfoProvidedWithTransaction($request_id, (int)$requesting_level);
+        } else {
+            // Fallback: if status is still more_info_requested but no row flagged, push back to pending
+            $stmt = $pdo->prepare("UPDATE budget_request SET status = 'pending' WHERE request_id = ? AND status = 'more_info_requested'");
+            $stmt->execute([$request_id]);
+            // Reset any request_info rows just in case
+            $stmt = $pdo->prepare("UPDATE approval_progress SET status = 'pending' WHERE request_id = ? AND status = 'request_info'");
+            $stmt->execute([$request_id]);
+        }
+
         echo json_encode([
             'success' => true,
             'message' => 'Budget request updated successfully'
