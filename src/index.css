@@ -1,0 +1,51 @@
+:root {
+  /* Light mode variables */
+  --bg-primary: #f8f9fa;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e9ecef;
+  --text-primary: #212529;
+  --text-secondary: #495057;
+  --text-muted: #6c757d;
+  --border-color: #dee2e6;
+  --shadow-color: rgba(0,0,0,0.08);
+  --card-bg: #ffffff;
+  --header-bg: #ffffff;
+  --green-primary: #00B04F;
+  --green-secondary: #008037;
+  --green-dark: #015c2e;
+}
+
+[data-theme="dark"] {
+  /* Dark mode variables */
+  --bg-primary: #1a1d23;
+  --bg-secondary: #2c3039;
+  --bg-tertiary: #3c4043;
+  --text-primary: #ffffff;
+  --text-secondary: #e4e6ea;
+  --text-muted: #b0b3b8;
+  --border-color: #495057;
+  --shadow-color: rgba(0,0,0,0.3);
+  --card-bg: #2c3039;
+  --header-bg: #2c3039;
+  --green-primary: #00B04F;
+  --green-secondary: #00d055;
+  --green-dark: #00B04F;
+}
+
+* {
+  box-sizing: border-box;
+  font-family: 'Montserrat', sans-serif;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: all 0.3s ease;
+}
+
+#root {
+  min-height: 100vh;
+}

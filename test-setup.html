@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>React Setup Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .info { color: #17a2b8; }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 React Migration Setup Test</h1>
+    <p>This page tests if your React migration setup is working correctly.</p>
+
+    <div class="test-section">
+        <h2>1. PHP Backend Test</h2>
+        <p>Testing if PHP backend is accessible...</p>
+        <button onclick="testPHPBackend()">Test PHP Backend</button>
+        <div id="php-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>2. Database Connection Test</h2>
+        <p>Testing database connectivity...</p>
+        <button onclick="testDatabase()">Test Database</button>
+        <div id="db-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>3. API Endpoints Test</h2>
+        <p>Testing API endpoints...</p>
+        <button onclick="testAPIEndpoints()">Test API Endpoints</button>
+        <div id="api-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>4. React Development Server Test</h2>
+        <p>Testing if React dev server is running...</p>
+        <button onclick="testReactServer()">Test React Server</button>
+        <div id="react-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>5. File Structure Test</h2>
+        <p>Checking if all required files exist...</p>
+        <button onclick="testFileStructure()">Test File Structure</button>
+        <div id="files-result" class="result"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>📋 Next Steps</h2>
+        <p>If all tests pass, you can:</p>
+        <ul>
+            <li><strong>Start React Dev Server:</strong> <code>npm run dev</code></li>
+            <li><strong>Access React App:</strong> <a href="http://localhost:3000" target="_blank">http://localhost:3000</a></li>
+            <li><strong>Test Hybrid Integration:</strong> <a href="react-integration.php" target="_blank">react-integration.php</a></li>
+            <li><strong>Login to System:</strong> Use existing credentials</li>
+        </ul>
+    </div>
+
+    <script>
+        async function testPHPBackend() {
+            const result = document.getElementById('php-result');
+            result.innerHTML = '<span class="info">Testing...</span>';
+            
+            try {
+                const response = await fetch('/api/check_auth.php');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    result.innerHTML = '<span class="success">✅ PHP Backend is working! Response: ' + JSON.stringify(data) + '</span>';
+                } else {
+                    result.innerHTML = '<span class="error">❌ PHP Backend error: ' + response.status + '</span>';
+                }
+            } catch (error) {
+                result.innerHTML = '<span class="error">❌ Cannot connect to PHP backend: ' + error.message + '</span>';
+            }
+        }
+
+        async function testDatabase() {
+            const result = document.getElementById('db-result');
+            result.innerHTML = '<span class="info">Testing...</span>';
+            
+            try {
+                // Test by trying to access a database-dependent endpoint
+                const response = await fetch('/api/requester/requests.php');
+                const data = await response.json();
+                
+                if (response.ok || data.message) {
+                    result.innerHTML = '<span class="success">✅ Database connection is working! (Response: ' + (data.message || 'OK') + ')</span>';
+                } else {
+                    result.innerHTML = '<span class="error">❌ Database connection error</span>';
+                }
+            } catch (error) {
+                result.innerHTML = '<span class="error">❌ Database test failed: ' + error.message + '</span>';
+            }
+        }
+
+        async function testAPIEndpoints() {
+            const result = document.getElementById('api-result');
+            result.innerHTML = '<span class="info">Testing...</span>';
+            
+            const endpoints = [
+                '/api/check_auth.php',
+                '/api/requester/requests.php',
+                '/api/approver/requests.php'
+            ];
+            
+            let results = [];
+            
+            for (const endpoint of endpoints) {
+                try {
+                    const response = await fetch(endpoint);
+                    if (response.ok) {
+                        results.push(`✅ ${endpoint}`);
+                    } else {
+                        results.push(`❌ ${endpoint} (${response.status})`);
+                    }
+                } catch (error) {
+                    results.push(`❌ ${endpoint} (${error.message})`);
+                }
+            }
+            
+            result.innerHTML = results.join('<br>');
+        }
+
+        async function testReactServer() {
+            const result = document.getElementById('react-result');
+            result.innerHTML = '<span class="info">Testing...</span>';
+            
+            try {
+                const response = await fetch('http://localhost:3000');
+                if (response.ok) {
+                    result.innerHTML = '<span class="success">✅ React development server is running at http://localhost:3000</span>';
+                } else {
+                    result.innerHTML = '<span class="error">❌ React server responded with status: ' + response.status + '</span>';
+                }
+            } catch (error) {
+                result.innerHTML = '<span class="error">❌ React development server is not running. Run: npm run dev</span>';
+            }
+        }
+
+        async function testFileStructure() {
+            const result = document.getElementById('files-result');
+            result.innerHTML = '<span class="info">Testing...</span>';
+            
+            const requiredFiles = [
+                'package.json',
+                'vite.config.js',
+                'src/main.jsx',
+                'src/App.jsx',
+                'api/check_auth.php',
+                'api/login.php',
+                'react-integration.php'
+            ];
+            
+            let results = [];
+            
+            for (const file of requiredFiles) {
+                try {
+                    const response = await fetch(file);
+                    if (response.ok) {
+                        results.push(`✅ ${file}`);
+                    } else {
+                        results.push(`❌ ${file} (${response.status})`);
+                    }
+                } catch (error) {
+                    results.push(`❌ ${file} (not found)`);
+                }
+            }
+            
+            result.innerHTML = results.join('<br>');
+        }
+
+        // Auto-run tests on page load
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                testPHPBackend();
+                testDatabase();
+                testAPIEndpoints();
+                testFileStructure();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
