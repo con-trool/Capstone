@@ -148,6 +148,7 @@ const ApproverDashboard = ({ user, onLogout }) => {
               }}
               onClick={() => handleRequestClick(request)}
               showDeleteButton={false}
+              role={user.role}
             />
           ))
         )}

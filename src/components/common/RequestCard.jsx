@@ -1,7 +1,7 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
 
-const RequestCard = ({ request, onClick, onDelete, showDeleteButton = false }) => {
+const RequestCard = ({ request, onClick, onDelete, showDeleteButton = false, role = 'requester' }) => {
   const getStatusClass = (status) => {
     switch (status.toLowerCase()) {
       case 'approved':
@@ -72,7 +72,7 @@ const RequestCard = ({ request, onClick, onDelete, showDeleteButton = false }) =
         </div>
       )}
 
-      {(request.status === 'more_info_requested' || request.status === 'more information requested') && (
+      {role === 'requester' && (request.status === 'more_info_requested' || request.status === 'more information requested') && (
         <div className="action-required">
           <span>⚠️ Action Required:</span>
           <Link 
@@ -85,7 +85,7 @@ const RequestCard = ({ request, onClick, onDelete, showDeleteButton = false }) =
         </div>
       )}
 
-      {showDeleteButton && (
+      {role === 'requester' && showDeleteButton && (
         <div className="delete-section">
           <button 
             className="delete-btn"

@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react'
 const RequestModal = ({ request, onClose, userRole }) => {
   const [details, setDetails] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState('')
 
   useEffect(() => {
     if (request) {
@@ -25,6 +27,35 @@ const RequestModal = ({ request, onClose, userRole }) => {
       console.error('Error fetching request details:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const takeAction = async (action, payload = {}) => {
+    try {
+      setActionLoading(true)
+      setActionError('')
+      const form = new FormData()
+      form.append('request_id', request.request_id)
+      form.append('action', action)
+      if (payload.comments) form.append('comments', payload.comments)
+
+      if (payload.approvedAmounts) {
+        Object.entries(payload.approvedAmounts).forEach(([row, amt]) => {
+          form.append(`approved_amounts[${row}]`, amt)
+        })
+      }
+
+      const res = await fetch('/api/process_approval.php', { method: 'POST', body: form })
+      const data = await res.json()
+      if (!data.success) throw new Error(data.message || 'Action failed')
+
+      await fetchRequestDetails()
+      alert(data.message)
+    } catch (err) {
+      console.error(err)
+      setActionError(err.message)
+    } finally {
+      setActionLoading(false)
     }
   }
 
@@ -92,6 +123,21 @@ const RequestModal = ({ request, onClose, userRole }) => {
               <div className="description-section">
                 <h3>Description</h3>
                 <p>{details.description}</p>
+              </div>
+            )}
+
+            {['approver','department_head','dean','vp_finance'].includes(userRole) && details.status === 'pending' && (
+              <div className="actions">
+                {actionError && <div className="error" style={{marginBottom: '10px'}}>{actionError}</div>}
+                <button className="approve" disabled={actionLoading} onClick={() => takeAction('approve')}>Approve</button>
+                <button className="reject" disabled={actionLoading} onClick={() => {
+                  const comments = prompt('Rejection reason:')
+                  if (comments) takeAction('reject', { comments })
+                }}>Reject</button>
+                <button className="request-info" disabled={actionLoading} onClick={() => {
+                  const comments = prompt('Request additional information:')
+                  if (comments) takeAction('request_info', { comments })
+                }}>Request Info</button>
               </div>
             )}
           </div>
@@ -231,6 +277,11 @@ const RequestModal = ({ request, onClose, userRole }) => {
           color: #856404;
           font-weight: bold;
         }
+        .actions { display: flex; gap: 10px; margin-top: 16px; }
+        .actions button { padding: 8px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
+        .actions .approve { background: #00B04F; color: #fff; }
+        .actions .reject { background: #dc3545; color: #fff; }
+        .actions .request-info { background: #ffc107; color: #212529; }
       `}</style>
     </div>
   )

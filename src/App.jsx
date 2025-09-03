@@ -67,6 +67,7 @@ function App() {
     )
   }
 
+  // Router for the app, put routes here after being declared in the components
   const router = createBrowserRouter([
     {
       path: '/login',
