@@ -7,16 +7,17 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:80/Capstone', // Your XAMPP Apache server, change this when we will not be using localhost
+        
         changeOrigin: true,
         // Don't rewrite the path - keep /api prefix since our files are in /api directory
       },
     },
   },
   build: {
-    outDir: 'dist', // Output directory for production build
+    outDir: 'dist', // Output directory for production build (dist is the default name for the output directory)
     rollupOptions: {
       input: {
-        main: 'index.html', // Entry point for the build
+        main: 'index.html', // Entry point for the build (index.html is the default name for the entry point)
       },
     },
   },

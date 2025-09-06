@@ -84,6 +84,13 @@ try {
             'role' => $row['role']
         ];
 
+        // Normalize: if request is pending but current level progress isn't marked pending, fix it
+        if ($request['status'] === 'pending' && ($current_level_status === null || $current_level_status !== 'pending')) {
+            $stmtFix = $pdo->prepare("UPDATE approval_progress SET status = 'pending' WHERE request_id = ? AND approval_level = ?");
+            $stmtFix->execute([$request_id, $request['current_approval_level']]);
+            $current_level_status = 'pending';
+        }
+
         // Lazy auto-assignment: if pending level has no approver, assign based on workflow rules
         if ($current_level_status === 'pending' && empty($row['approver_id'])) {
             // Find expected role for this department and level
@@ -113,6 +120,10 @@ try {
                         'email' => $acc['username_email'],
                         'role' => $acc['role']
                     ];
+                    // Ensure status pending after assignment
+                    $pdo->prepare("UPDATE approval_progress SET status = 'pending' WHERE request_id = ? AND approval_level = ?")
+                        ->execute([$request_id, $request['current_approval_level']]);
+                    $current_level_status = 'pending';
                     // Re-evaluate can_act after assignment
                     if (isset($_SESSION['user_id'])) {
                         $can_act = ((int)$_SESSION['user_id'] === (int)$acc['id'] && $request['status'] === 'pending');
