@@ -1,156 +1,122 @@
 <?php
 session_start();
-require '../db.php';
 header('Content-Type: application/json');
 
-if (!isset($_SESSION['username'])) {
-    echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-    exit;
-}
-
-$request_id = $_GET['request_id'] ?? '';
-
-if (empty($request_id)) {
-    echo json_encode(['success' => false, 'message' => 'Request ID is required']);
-    exit;
-}
-
-$pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
 try {
-    // Get basic request details
-    $stmt = $pdo->prepare("SELECT * FROM budget_request WHERE request_id = ?");
-    $stmt->execute([$request_id]);
-    $request = $stmt->fetch(PDO::FETCH_ASSOC);
+  if (!isset($_GET['request_id'])) {
+    http_response_code(400);
+    echo json_encode(['success'=>false,'message'=>'Missing request_id']);
+    exit;
+  }
+  $request_id = $_GET['request_id'];
 
-    if (!$request) {
-        echo json_encode(['success' => false, 'message' => 'Request not found']);
-        exit;
-    }
+  // DB
+  $pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
+  $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-    // Check if user has access to this request
-    $user_id = $_SESSION['user_id'];
-    $user_role = $_SESSION['role'];
-    
-    // Requester can only see their own requests
-    if ($user_role === 'requester' && $request['account_id'] != $user_id) {
-        echo json_encode(['success' => false, 'message' => 'Unauthorized']);
-        exit;
-    }
+  // who am I (optional access check for requester)
+  $username = $_SESSION['username'] ?? null;
+  $role = $_SESSION['role'] ?? null;
+  $account_id = null;
+  if ($username) {
+    $st = $pdo->prepare("SELECT id FROM account WHERE username_email=? LIMIT 1");
+    $st->execute([$username]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    $account_id = $row['id'] ?? null;
+  }
 
-    // Get budget entries
-    $stmt = $pdo->prepare("SELECT * FROM budget_entries WHERE request_id = ? ORDER BY row_num");
-    $stmt->execute([$request_id]);
-    $budget_entries = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  // request
+  $st = $pdo->prepare("
+    SELECT br.*, a.name AS requester_name, a.username_email AS requester_email,
+           d.college, d.budget_deck, c.name AS campus_name
+    FROM budget_request br
+    LEFT JOIN account a   ON br.account_id = a.id
+    LEFT JOIN department d ON br.department_code = d.code
+    LEFT JOIN campus c     ON br.campus_code = c.code
+    WHERE br.request_id = ?
+  ");
+  $st->execute([$request_id]);
+  $req = $st->fetch(PDO::FETCH_ASSOC);
+  if (!$req) {
+    http_response_code(404);
+    echo json_encode(['success'=>false,'message'=>'Request not found']);
+    exit;
+  }
 
-    // Get approval history
-    $stmt = $pdo->prepare("
-        SELECT ap.*, a.name as approver_name, a.username_email as approver_email
-        FROM approval_progress ap
-        LEFT JOIN account a ON ap.approver_id = a.id
-        WHERE ap.request_id = ?
-        ORDER BY ap.timestamp ASC
-    ");
-    $stmt->execute([$request_id]);
-    $approval_history = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  // if requester, restrict to own requests (optional but safer)
+  if ($role === 'requester' && $account_id && $req['account_id'] != $account_id) {
+    http_response_code(403);
+    echo json_encode(['success'=>false,'message'=>'Forbidden']);
+    exit;
+  }
 
-    // Get amendments (schema uses created_timestamp, not created_at)
-    $stmt = $pdo->prepare("SELECT * FROM budget_amendments WHERE request_id = ? ORDER BY created_timestamp DESC");
-    $stmt->execute([$request_id]);
-    $amendments = $stmt->fetchAll(PDO::FETCH_ASSOC);
+  // entries
+  $st = $pdo->prepare("
+    SELECT row_num, gl_code, budget_description, remarks, amount, approved_amount
+    FROM budget_entries
+    WHERE request_id = ?
+    ORDER BY row_num
+  ");
+  $st->execute([$request_id]);
+  $entries = $st->fetchAll(PDO::FETCH_ASSOC);
 
-    // Determine assignment and whether current user can act
-    $can_act = false;
-    $current_level_status = null;
-    $assigned_approver = [
-        'id' => null,
-        'name' => null,
-        'email' => null,
-        'role' => null
-    ];
-    $stmt = $pdo->prepare("SELECT ap.status, ap.approver_id, a.name, a.username_email, a.role
-                            FROM approval_progress ap
-                            LEFT JOIN account a ON ap.approver_id = a.id
-                            WHERE ap.request_id = ? AND ap.approval_level = ?
-                            LIMIT 1");
-    $stmt->execute([$request_id, $request['current_approval_level']]);
-    if ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-        $current_level_status = $row['status'];
-        $assigned_approver = [
-            'id' => $row['approver_id'],
-            'name' => $row['name'],
-            'email' => $row['username_email'],
-            'role' => $row['role']
-        ];
+  // approval history
+  $st = $pdo->prepare("
+    SELECT ap.approval_level, ap.status, ap.timestamp, ap.comments,
+           acc.name AS approver_name
+    FROM approval_progress ap
+    LEFT JOIN account acc ON ap.approver_id = acc.id
+    WHERE ap.request_id = ?
+    ORDER BY ap.approval_level ASC
+  ");
+  $st->execute([$request_id]);
+  $approval_history = $st->fetchAll(PDO::FETCH_ASSOC);
 
-        // Lazy auto-assignment: if pending level has no approver, assign based on workflow rules
-        if ($current_level_status === 'pending' && empty($row['approver_id'])) {
-            // Find expected role for this department and level
-            $stmtRole = $pdo->prepare("SELECT approver_role FROM approval_workflow WHERE department_code = ? AND approval_level = ? LIMIT 1");
-            $stmtRole->execute([$request['department_code'], $request['current_approval_level']]);
-            $expected_role = $stmtRole->fetchColumn();
+  // attachments
+  $st = $pdo->prepare("
+    SELECT t.id, t.original_filename, t.filename, t.file_size, t.upload_timestamp,
+           a.name AS uploader_name
+    FROM attachments t
+    LEFT JOIN account a ON t.uploaded_by = a.id
+    WHERE t.request_id = ?
+    ORDER BY t.upload_timestamp ASC
+  ");
+  $st->execute([$request_id]);
+  $attachments = $st->fetchAll(PDO::FETCH_ASSOC);
 
-            if ($expected_role) {
-                // Prefer approver in same department
-                $stmtAcc = $pdo->prepare("SELECT id, name, username_email, role FROM account WHERE role = ? AND department_code = ? LIMIT 1");
-                $stmtAcc->execute([$expected_role, $request['department_code']]);
-                $acc = $stmtAcc->fetch(PDO::FETCH_ASSOC);
+  // activity history
+  $st = $pdo->prepare("
+    SELECT h.timestamp, h.action, a.name AS approver_name
+    FROM history h
+    LEFT JOIN account a ON h.account_id = a.id
+    WHERE h.request_id = ?
+    ORDER BY h.timestamp DESC
+  ");
+  $st->execute([$request_id]);
+  $history = $st->fetchAll(PDO::FETCH_ASSOC);
 
-                if (!$acc) {
-                    // Fallback: any user with that role
-                    $stmtAcc = $pdo->prepare("SELECT id, name, username_email, role FROM account WHERE role = ? LIMIT 1");
-                    $stmtAcc->execute([$expected_role]);
-                    $acc = $stmtAcc->fetch(PDO::FETCH_ASSOC);
-                }
+  // amendments (shown only for VP Finance in UI, but OK to return always)
+  $st = $pdo->prepare("
+    SELECT ba.*, crt.name AS created_by_name, appr.name AS approved_by_name
+    FROM budget_amendments ba
+    LEFT JOIN account crt  ON ba.created_by  = crt.id
+    LEFT JOIN account appr ON ba.approved_by = appr.id
+    WHERE ba.request_id = ?
+    ORDER BY ba.amendment_number DESC
+  ");
+  $st->execute([$request_id]);
+  $amendments = $st->fetchAll(PDO::FETCH_ASSOC);
 
-                if ($acc) {
-                    $upd = $pdo->prepare("UPDATE approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ?");
-                    $upd->execute([$acc['id'], $request_id, $request['current_approval_level']]);
-                    $assigned_approver = [
-                        'id' => $acc['id'],
-                        'name' => $acc['name'],
-                        'email' => $acc['username_email'],
-                        'role' => $acc['role']
-                    ];
-                    // Re-evaluate can_act after assignment
-                    if (isset($_SESSION['user_id'])) {
-                        $can_act = ((int)$_SESSION['user_id'] === (int)$acc['id'] && $request['status'] === 'pending');
-                    }
-                } else {
-                    // No concrete user, at least expose expected role
-                    $assigned_approver['role'] = $expected_role;
-                }
-            }
-        }
-        // Evaluate capability: by assignment OR expected role match when unassigned
-        $stmtRole2 = $pdo->prepare("SELECT approver_role FROM approval_workflow WHERE department_code = ? AND approval_level = ? LIMIT 1");
-        $stmtRole2->execute([$request['department_code'], $request['current_approval_level']]);
-        $expected_role2 = $stmtRole2->fetchColumn();
-        if (isset($_SESSION['user_id'])) {
-            $is_assigned_to_me = !empty($assigned_approver['id']) && (int)$assigned_approver['id'] === (int)$_SESSION['user_id'];
-            $matches_role_and_unassigned = empty($assigned_approver['id']) && $expected_role2 && $expected_role2 === $_SESSION['role'];
-            $can_act = ($request['status'] === 'pending' && $current_level_status === 'pending' && ($is_assigned_to_me || $matches_role_and_unassigned));
-        }
-    }
-
-    echo json_encode([
-        'success' => true,
-        'details' => [
-            ...$request,
-            'budget_entries' => $budget_entries,
-            'approval_history' => $approval_history,
-            'amendments' => $amendments,
-            'can_act' => $can_act,
-            'current_level_status' => $current_level_status,
-            'assigned_approver' => $assigned_approver
-        ]
-    ]);
-
-} catch (Exception $e) {
-    echo json_encode([
-        'success' => false,
-        'message' => 'Database error: ' . $e->getMessage()
-    ]);
+  echo json_encode([
+    'success' => true,
+    'request' => $req,
+    'entries' => $entries,
+    'approval_history' => $approval_history,
+    'attachments' => $attachments,
+    'history' => $history,
+    'amendments' => $amendments
+  ]);
+} catch (Throwable $e) {
+  http_response_code(500);
+  echo json_encode(['success'=>false,'message'=>'Server error','error'=>$e->getMessage()]);
 }
-?>

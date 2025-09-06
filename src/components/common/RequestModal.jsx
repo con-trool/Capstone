@@ -1,320 +1,638 @@
-import React, { useState, useEffect } from 'react'
+import React, { useEffect, useMemo, useState } from "react";
 
-const RequestModal = ({ request, onClose, userRole }) => {
-  const [details, setDetails] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState(false)
-  const [actionError, setActionError] = useState('')
+/** Simple peso helpers */
+const peso = (n) =>
+  "₱" +
+  (Number(n) || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
+/** Academic-year distribution helpers (AY e.g. "2024-2025") */
+function ayMonths(academicYear) {
+  const [startY, endY] = (academicYear || "").split("-").map((x) => parseInt(x, 10));
+  if (!startY || !endY) return [];
+  const out = [];
+  for (let m = 9; m <= 12; m++) out.push(new Date(startY, m - 1).toLocaleString("default", { month: "long" }) + ` ${startY}`);
+  for (let m = 1; m <= 8; m++) out.push(new Date(endY, m - 1).toLocaleString("default", { month: "long" }) + ` ${endY}`);
+  return out;
+}
+function distributionRows(total, duration, academicYear) {
+  const months = ayMonths(academicYear);
+  if (duration === "Monthly") {
+    const each = (Number(total) || 0) / (months.length || 1);
+    return months.map((label) => ({ period: label, amount: each }));
+  }
+  if (duration === "Quarterly") {
+    const each = (Number(total) || 0) / 4;
+    return [
+      { period: `Q1 (${months[0]} - ${months[2]})`, amount: each },
+      { period: `Q2 (${months[3]} - ${months[5]})`, amount: each },
+      { period: `Q3 (${months[6]} - ${months[8]})`, amount: each },
+      { period: `Q4 (${months[9]} - ${months[11]})`, amount: each },
+    ];
+  }
+  return months.length
+    ? [{ period: `Annual (${months[0]} - ${months[11]})`, amount: Number(total) || 0 }]
+    : [{ period: "Annual", amount: Number(total) || 0 }];
+}
+
+function fileIcon(ext) {
+  const e = String(ext || "").toLowerCase();
+  if (["jpg", "jpeg", "png", "gif"].includes(e)) return "🖼️";
+  if (e === "pdf") return "📕";
+  if (["doc", "docx"].includes(e)) return "📘";
+  if (["xls", "xlsx", "csv"].includes(e)) return "📊";
+  return "📄";
+}
+
+const APPROVER_ROLES = new Set(["approver", "department_head", "dean", "vp_finance"]);
+
+export default function RequestModal({ request, onClose, userRole = "requester" }) {
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [data, setData] = useState(null);
+  const [distOpen, setDistOpen] = useState(false);
+  const [distItem, setDistItem] = useState(null);
+  const [approvedMap, setApprovedMap] = useState({});
+  const [preview, setPreview] = useState(null);
+
+  // FETCH
   useEffect(() => {
-    if (request) {
-      fetchRequestDetails()
-    }
-  }, [request])
+    if (!request?.request_id) return;
+    let active = true;
+    (async () => {
+      setLoading(true);
+      setErr("");
+      try {
+        const url = `/api/request_details.php?request_id=${encodeURIComponent(request.request_id)}`;
+        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        const raw = await res.text();
+        let json;
+        try { json = JSON.parse(raw); } catch { throw new Error(`Bad JSON (HTTP ${res.status}): ${raw.slice(0,200)}`); }
+        if (!res.ok) throw new Error(json.message || `HTTP ${res.status}`);
+        if (!active) return;
+        setData(json);
+        const seed = {};
+        (json.entries || []).forEach((e) => {
+          if (e.approved_amount != null && e.approved_amount !== "") seed[e.row_num] = String(e.approved_amount);
+        });
+        setApprovedMap(seed);
+      } catch (e) {
+        console.error(e);
+        if (active) setErr("An error occurred while loading details.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [request?.request_id]);
 
-  const fetchRequestDetails = async () => {
+  const req = data?.request;
+  const entries = data?.entries || [];
+  const attachments = data?.attachments || [];
+  const approvalHistory = data?.approval_history || [];
+  const activityHistory = data?.history || [];
+  const amendments = data?.amendments || [];
+
+  const hasApprovedAmounts = entries.some((e) => e.approved_amount != null && e.approved_amount !== "" && e.approved_amount !== e.amount);
+  const isVPFinalPending =
+    userRole === "vp_finance" &&
+    String((req?.status || "").toLowerCase()) === "pending" &&
+    req?.current_approval_level === req?.total_approval_levels;
+  const showApprovedColumn = hasApprovedAmounts || isVPFinalPending;
+
+  const totalApprovedLive = showApprovedColumn
+    ? entries.reduce((t, e) => {
+        const raw = approvedMap[e.row_num];
+        const use = raw === "" || raw == null ? e.amount : parseFloat(raw);
+        return t + (Number(use) || 0);
+      }, 0)
+    : null;
+
+  function onAmountClick(e) {
+    setDistItem({
+      gl_code: e.gl_code,
+      description: e.budget_description,
+      amount: e.amount,
+      duration: req?.duration || "Annually",
+      academic_year: req?.academic_year || "",
+    });
+    setDistOpen(true);
+  }
+
+  async function handleApproval(action) {
+    const comments = document.getElementById("modal-approval-comments")?.value || "";
     try {
-      setLoading(true)
-      const response = await fetch(`/api/request_details.php?request_id=${request.request_id}`)
-      const data = await response.json()
-
-      if (data.success) {
-        setDetails(data.details)
+      const body = { request_id: req.request_id, action, comments };
+      if (isVPFinalPending) body.approved_amounts = approvedMap;
+      const res = await fetch("/api/approvals/act.php", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await res.json();
+      if (j.success) {
+        alert("Action recorded successfully.");
+        onClose?.();
       } else {
-        console.error('Failed to fetch request details:', data.message)
+        alert(j.message || "Failed to process action.");
       }
-    } catch (error) {
-      console.error('Error fetching request details:', error)
-    } finally {
-      setLoading(false)
+    } catch {
+      alert("An error occurred while processing your action.");
     }
   }
 
-  const takeAction = async (action, payload = {}) => {
-    try {
-      setActionLoading(true)
-      setActionError('')
-      const form = new FormData()
-      form.append('request_id', request.request_id)
-      form.append('action', action)
-      if (payload.comments) form.append('comments', payload.comments)
-
-      if (payload.approvedAmounts) {
-        Object.entries(payload.approvedAmounts).forEach(([row, amt]) => {
-          form.append(`approved_amounts[${row}]`, amt)
-        })
-      }
-
-      const res = await fetch('/api/process_approval.php', { method: 'POST', body: form })
-      const data = await res.json()
-      if (!data.success) throw new Error(data.message || 'Action failed')
-
-      await fetchRequestDetails()
-      alert(data.message)
-    } catch (err) {
-      console.error(err)
-      setActionError(err.message)
-    } finally {
-      setActionLoading(false)
-    }
+  function downloadHref(att) {
+    return `download_attachment.php?id=${encodeURIComponent(att.id)}`;
   }
-
-  if (!request) return null
 
   return (
-    <div className="modal" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-        <button className="modal-close" onClick={onClose}>&times;</button>
-        
-        <div className="modal-header">
-          <h2>Request Details - {request.request_id}</h2>
-        </div>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <button className="close" onClick={onClose} aria-label="Close">×</button>
 
         {loading ? (
-          <div className="loading">Loading request details...</div>
-        ) : details ? (
-          <div className="request-details">
-            <div className="info-grid">
-              <div className="info-item">
-                <strong>Request ID:</strong>
-                <span>{details.request_id}</span>
+          <div className="loading">Loading…</div>
+        ) : err ? (
+          <div className="error">{err}</div>
+        ) : !req ? (
+          <div className="error">Request not found.</div>
+        ) : (
+          <>
+            {/* ===== Request Overview (new look) ===== */}
+            <div className="panel">
+              <div className="panel-head">
+                <span className="panel-icon">🧾</span>
+                <h3>Request Overview</h3>
               </div>
-              <div className="info-item">
-                <strong>Status:</strong>
-                <span className={`status-${details.status.toLowerCase()}`}>{details.status}</span>
-              </div>
-              <div className="info-item">
-                <strong>Academic Year:</strong>
-                <span>{details.academic_year}</span>
-              </div>
-              <div className="info-item">
-                <strong>Submitted:</strong>
-                <span>{new Date(details.timestamp).toLocaleDateString()}</span>
+
+              <div className="overview-grid">
+                <div className="info-card accent-green">
+                  <div className="label">Request ID:</div>
+                  <div className="value strong">{req.request_id}</div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Requester:</div>
+                  <div className="value">{req.requester_name || "Unknown"}</div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Campus:</div>
+                  <div className="value">{req.campus_code} - {req.campus_name}</div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Department:</div>
+                  <div className="value">{req.department_code}</div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Fund Account:</div>
+                  <div className="value">{req.fund_account || "N/A"}</div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Fund Name:</div>
+                  <div className="value">{req.fund_name || "N/A"}</div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Duration:</div>
+                  <div className="value"><span className="chip chip-pink">{req.duration || "N/A"}</span></div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Academic Year:</div>
+                  <div className="value"><span className="chip chip-indigo">{req.academic_year}</span></div>
+                </div>
+
+                <div className="info-card span-2">
+                  <div className="label">Total Amount:</div>
+                  <div className="value amount">{peso(req.proposed_budget)}</div>
+                </div>
+
+                <div className="info-card span-2">
+                  <div className="label">Submitted:</div>
+                  <div className="value">{new Date(req.timestamp).toLocaleString()}</div>
+                </div>
+
+                <div className="info-card">
+                  <div className="label">Status:</div>
+                  <div className="value">
+                    <span className={`status-chip ${String(req.status).toLowerCase()}`}>{req.status}</span>
+                  </div>
+                </div>
+
+                {req.current_approval_level != null && (
+                  <div className="info-card">
+                    <div className="label">Approval Progress:</div>
+                    <div className="value">
+                      Level {req.current_approval_level} of {req.total_approval_levels}
+                      {req.workflow_complete && <span className="ok">  •  ✓ Complete</span>}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            {details.budget_entries && details.budget_entries.length > 0 && (
-              <div className="budget-entries">
-                <h3>Budget Entries</h3>
-                <table className="budget-table">
-                  <thead>
-                    <tr>
-                      <th>GL Code</th>
-                      <th>Description</th>
-                      <th>Amount</th>
-                      <th>Duration</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {details.budget_entries.map((entry, index) => (
-                      <tr key={index}>
-                        <td>{entry.gl_code}</td>
-                        <td>{entry.budget_description}</td>
-                        <td>₱{parseFloat(entry.amount).toLocaleString()}</td>
-                        <td>{entry.duration}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {/* ===== Request Details (new look) ===== */}
+            {(req.budget_title || req.description) && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">🗂️</span>
+                  <h3>Request Details</h3>
+                </div>
 
-            {details.description && (
-              <div className="description-section">
-                <h3>Description</h3>
-                <p>{details.description}</p>
-              </div>
-            )}
+                {req.budget_title && (
+                  <div className="block">
+                    <div className="block-label">Budget Request Title:</div>
+                    <div className="block-body">{req.budget_title}</div>
+                  </div>
+                )}
 
-            {/* Assignment banner */}
-            {details.assigned_approver && request.status === 'pending' && (
-              <div className={`assignment-banner ${details.can_act ? 'you' : 'other'}`}>
-                {details.can_act ? (
-                  <span>You are the assigned approver for the current level.</span>
-                ) : (
-                  <span>
-                    Current level assigned to: {details.assigned_approver.name || 'Unassigned'}
-                    {details.assigned_approver.role ? ` (${details.assigned_approver.role})` : ''}
-                  </span>
+                {req.description && (
+                  <div className="block">
+                    <div className="block-label">Description:</div>
+                    <div className="block-body">{req.description}</div>
+                  </div>
                 )}
               </div>
             )}
 
-            {['approver','department_head','dean','vp_finance'].includes(userRole) && details.status === 'pending' && details.can_act && (
-              <div className="actions">
-                {actionError && <div className="error" style={{marginBottom: '10px'}}>{actionError}</div>}
-                <button className="approve" disabled={actionLoading} onClick={() => takeAction('approve')}>Approve</button>
-                <button className="reject" disabled={actionLoading} onClick={() => {
-                  const comments = prompt('Rejection reason:')
-                  if (comments) takeAction('reject', { comments })
-                }}>Reject</button>
-                <button className="request-info" disabled={actionLoading} onClick={() => {
-                  const comments = prompt('Request additional information:')
-                  if (comments) takeAction('request_info', { comments })
-                }}>Request Info</button>
+            {/* ===== Budget Line Items ===== */}
+            {entries.length > 0 && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">📊</span>
+                  <h3>Budget Line Items</h3>
+                </div>
+
+                <div className="table-wrap">
+                  <table className="lines">
+                    <thead>
+                      <tr>
+                        <th>Row</th>
+                        <th>GL Code</th>
+                        <th>Description</th>
+                        <th>Remarks</th>
+                        <th>Proposed Amount</th>
+                        {showApprovedColumn && <th className="approved-head">Approved Amount</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {entries.map((e) => {
+                        const extApproved = e.approved_amount != null && e.approved_amount !== "" ? Number(e.approved_amount) : null;
+                        const isEdited = extApproved != null && extApproved !== Number(e.amount);
+                        return (
+                          <tr key={e.row_num}>
+                            <td>{e.row_num}</td>
+                            <td>{e.gl_code}</td>
+                            <td>{e.budget_description}</td>
+                            <td>{e.remarks ? e.remarks : <em className="muted">No remarks</em>}</td>
+                            <td className="right">
+                              <span className="clickable" onClick={() => onAmountClick(e)} title="View distribution">
+                                {peso(e.amount)}
+                              </span>
+                            </td>
+                            {showApprovedColumn && (
+                              <td className="right">
+                                {isVPFinalPending ? (
+                                  <>
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={approvedMap[e.row_num] ?? ""}
+                                      placeholder={(Number(e.amount) || 0).toFixed(2)}
+                                      onChange={(ev) => setApprovedMap((m) => ({ ...m, [e.row_num]: ev.target.value }))}
+                                      className="approved-input"
+                                      title="Leave blank to keep original amount"
+                                    />
+                                    <div className="hint">Leave blank for original</div>
+                                  </>
+                                ) : (
+                                  <span style={isEdited ? { color: "#28a745", fontWeight: 700 } : undefined}>
+                                    {peso(extApproved != null ? extApproved : e.amount)}
+                                  </span>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    {showApprovedColumn && (
+                      <tfoot>
+                        <tr>
+                          <td colSpan={4} className="right strong">TOTAL PROPOSED:</td>
+                          <td className="right strong">{peso(entries.reduce((s, e) => s + Number(e.amount || 0), 0))}</td>
+                          <td className="right strong green">{peso(totalApprovedLive)}</td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
               </div>
             )}
-          </div>
-        ) : (
-          <div className="error">Failed to load request details</div>
+
+            {/* ===== Attachments ===== */}
+            {attachments.length > 0 && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">📎</span>
+                  <h3>Attachments</h3>
+                </div>
+                <div className="att-grid">
+                  {attachments.map((a) => {
+                    const ext = (a.original_filename || "").split(".").pop();
+                    const icon = fileIcon(ext);
+                    const sizeKB = (Number(a.file_size) || 0) / 1024;
+                    const isImage = ["jpg", "jpeg", "png", "gif"].includes(String(ext || "").toLowerCase());
+                    return (
+                      <div key={a.id} className="att-card">
+                        <div className="att-row">
+                          <span className="att-icon">{icon}</span>
+                          <div className="att-meta">
+                            <strong>{a.original_filename}</strong>
+                            <br />
+                            <small>
+                              {sizeKB.toFixed(1)} KB • Uploaded {new Date(a.upload_timestamp).toLocaleString()}
+                              {a.uploader_name ? ` by ${a.uploader_name}` : ""}
+                            </small>
+                          </div>
+                        </div>
+                        <div className="att-actions">
+                          <a href={downloadHref(a)} className="btn dl">📥 Download</a>
+                          {isImage && (
+                            <button type="button" className="btn prev" onClick={() => setPreview({ src: `uploads/${a.filename}`, title: a.original_filename })}>
+                              👁️ Preview
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ===== Workflow / Activity ===== */}
+            {(approvalHistory.length > 0 || activityHistory.length > 0) && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">🧩</span>
+                  <h3>Approval Workflow</h3>
+                </div>
+
+                {approvalHistory.length > 0 && (
+                  <div className="history-block">
+                    <h4>Approval Levels:</h4>
+                    {approvalHistory.map((ah, i) => {
+                      const s = String(ah.status || "").toLowerCase();
+                      const color =
+                        s === "approved" ? "#28a745" : s === "rejected" ? "#dc3545" : s === "pending" ? "#ffc107" : "#6c757d";
+                      return (
+                        <div key={i} className="level-item" style={{ borderLeft: `3px solid ${color}` }}>
+                          <strong>Level {ah.approval_level}:</strong> {ah.approver_name || "Unassigned"}
+                          <br />
+                          <span style={{ color, fontWeight: 700 }}>Status: {ah.status ? ah.status[0].toUpperCase() + ah.status.slice(1) : "—"}</span>
+                          {ah.timestamp && s !== "pending" && (<><br /><small>{new Date(ah.timestamp).toLocaleString()}</small></>)}
+                          {ah.comments && (<><br /><em>"{ah.comments}"</em></>)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {activityHistory.length > 0 && (
+                  <div className="history-block">
+                    <h4>Activity History:</h4>
+                    {activityHistory.map((h, i) => (
+                      <div key={i} className="history-item">
+                        <strong>{new Date(h.timestamp).toLocaleString()}</strong> — {h.approver_name || "System"}
+                        <br /><em>{h.action}</em>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===== Approval Actions (pending) ===== */}
+            {APPROVER_ROLES.has(userRole) && String((req.status || "").toLowerCase()) === "pending" && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">✅</span>
+                  <h3>Approval Actions</h3>
+                </div>
+                <label htmlFor="modal-approval-comments" className="lbl">Comments (Optional):</label>
+                <textarea id="modal-approval-comments" rows={3} className="ta" placeholder="Add any comments about your decision..." />
+                <div className="action-buttons">
+                  <button className="btn approve" onClick={() => handleApproval("approve")}>✓ Approve Request</button>
+                  <button className="btn reject" onClick={() => handleApproval("reject")}>✗ Reject Request</button>
+                  <button className="btn info" onClick={() => handleApproval("request_info")}>ℹ Request More Information</button>
+                </div>
+              </div>
+            )}
+
+            {/* ===== VP Finance Amendment area (unchanged logic) ===== */}
+            {userRole === "vp_finance" && String((req.status || "").toLowerCase()) === "approved" && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">✏️</span>
+                  <h3>Amendments</h3>
+                </div>
+
+                {Array.isArray(amendments) && amendments.length > 0 && (
+                  <div className="amend-list">
+                    {amendments.map((am) => {
+                      const status = String(am.status || "").toLowerCase();
+                      const bg = status === "approved" ? "#d4edda" : status === "rejected" ? "#f8d7da" : "#fff3cd";
+                      const baseline = am.calculated_original_budget != null ? am.calculated_original_budget : am.original_total_budget;
+                      const change = (Number(am.amended_total_budget) || 0) - (Number(baseline) || 0);
+                      return (
+                        <div key={am.amendment_number} className="amend-card" style={{ background: bg }}>
+                          <div className="amend-head">
+                            <div>
+                              <strong>Amendment #{am.amendment_number}</strong>
+                              <span className={`pill ${status}`}>{status.toUpperCase()}</span>
+                            </div>
+                            <small>{new Date(am.created_timestamp).toLocaleString()}</small>
+                          </div>
+                          <div className="amend-title">
+                            <strong>{am.amendment_title}</strong>
+                            <span className="tt">{String(am.amendment_type || "").replace(/_/g, " ")}</span>
+                          </div>
+                          {am.amendment_reason && <div className="note">{am.amendment_reason}</div>}
+                          {am.amendment_type === "budget_change" && am.original_total_budget != null && am.amended_total_budget != null && (
+                            <div className="amend-nums">
+                              <div><strong>Original Budget:</strong> {peso(baseline)}</div>
+                              <div><strong>Amended Budget:</strong> {peso(am.amended_total_budget)}</div>
+                              <div style={{ color: change >= 0 ? "#28a745" : "#dc3545" }}>
+                                <strong>Change:</strong> {(change >= 0 ? "+" : "") + peso(Math.abs(change)).slice(1)}
+                              </div>
+                            </div>
+                          )}
+                          <div className="amend-foot">
+                            Created by: {am.created_by_name}{am.approved_by_name ? ` | Processed by: ${am.approved_by_name}` : ""}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="amend-cta">
+                  <button
+                    className="btn big"
+                    onClick={() => { window.location.href = `/vp/amend/create?request_id=${encodeURIComponent(req.request_id)}`; }}
+                  >
+                    🚀 Create Amendment to Approved Request
+                  </button>
+                  <p className="muted">
+                    <strong>Note:</strong> Amendments modify approved requests with full audit trail.
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
         )}
+
+        {/* Distribution Modal */}
+        {distOpen && distItem && (
+          <div className="dist-overlay" onClick={() => setDistOpen(false)}>
+            <div className="dist" onClick={(e) => e.stopPropagation()}>
+              <button className="close mini" onClick={() => setDistOpen(false)}>×</button>
+              <h2>Budget Distribution Details</h2>
+              <div className="mb-10">
+                <p><strong>Line Item:</strong> {distItem.gl_code}</p>
+                <p><strong>Description:</strong> {distItem.description}</p>
+                <p><strong>Total Amount:</strong> {peso(distItem.amount)}</p>
+                <p><strong>Distribution Chosen:</strong> {distItem.duration}</p>
+              </div>
+              <table className="lines">
+                <thead><tr><th>Period</th><th>Amount</th></tr></thead>
+                <tbody>
+                  {distributionRows(distItem.amount, distItem.duration, distItem.academic_year).map((row, i) => (
+                    <tr key={i}><td>{row.period}</td><td className="right">{peso(row.amount)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Image Preview Modal */}
+        {preview && (
+          <div className="img-overlay" onClick={() => setPreview(null)}>
+            <div className="img-box" onClick={(e) => e.stopPropagation()}>
+              <img src={preview.src} alt={preview.title} />
+              <div className="img-title">{preview.title}</div>
+              <button className="close mini" onClick={() => setPreview(null)}>✕ Close</button>
+            </div>
+          </div>
+        )}
+
+        {/* ====== NEW THEME STYLES ====== */}
+        <style jsx>{`
+          .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 9999; }
+          .modal { position: relative; background: #fff; border-radius: 12px; padding: 18px 18px 28px; width: min(1100px, 92vw); max-height: 92vh; overflow: auto; box-shadow: 0 8px 40px rgba(0,0,0,.25); }
+          .close { position: absolute; top: 8px; right: 12px; font-size: 22px; border: none; background: none; cursor: pointer; }
+
+          .panel { background: #f7f9fb; border: 1px solid #e6eaee; border-radius: 12px; padding: 16px; margin: 12px 0 18px; box-shadow: 0 1px 0 #eef2f6 inset; }
+          .panel-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+          .panel-head h3 { margin:0; font-size:18px; font-weight:800; color:#1f2d3d; }
+          .panel-icon { font-size:18px; }
+
+          .overview-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px; }
+          @media (max-width: 840px){ .overview-grid { grid-template-columns: 1fr; } }
+
+          .info-card { background:#fff; border:1px solid #e6eaee; border-radius:10px; padding:12px 14px; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+          .info-card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:#e6eaee; border-top-left-radius:10px; border-bottom-left-radius:10px; }
+          .info-card.accent-green::before { background:#28a745; }
+          .span-2 { grid-column: span 2; }
+          .label { font-weight:700; color:#32455b; margin-bottom:4px; }
+          .value { color:#1f2d3d; }
+          .value.strong { font-weight:800; letter-spacing:.3px; }
+          .value.amount { color:#0f9d58; font-weight:800; font-size:18px; }
+          .ok { color:#28a745; font-weight:700; }
+
+          .chip { display:inline-block; padding:4px 8px; border-radius:999px; font-size:12px; font-weight:700; background:#eef2ff; color:#3730a3; }
+          .chip-pink { background:#ffe4f1; color:#a70d5d; }
+          .chip-indigo { background:#e7edff; color:#3340a5; }
+
+          .status-chip { padding:4px 10px; border-radius:999px; font-weight:800; background:#eee; }
+          .status-chip.approved { color:#28a745; background:rgba(40,167,69,.12); }
+          .status-chip.pending { color:#fd7e14; background:rgba(253,126,20,.12); }
+          .status-chip.rejected { color:#dc3545; background:rgba(220,53,69,.12); }
+          .status-chip.more_info_requested { color:#856404; background:rgba(133,100,4,.12); }
+
+          .block { background:#fff; border:1px solid #e6eaee; border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+          .block-label { font-weight:800; color:#32455b; margin-bottom:6px; }
+          .block-body { color:#1f2d3d; background:#f8fafc; border:1px solid #eef2f6; padding:10px; border-radius:8px; }
+
+          .table-wrap { overflow-x:auto; }
+          table.lines { width:100%; border-collapse:collapse; font-size:14px; background:#fff; border:1px solid #e6eaee; border-radius:10px; overflow:hidden; }
+          table.lines thead th { background:#f0f3f8; color:#1f2d3d; text-align:left; padding:10px; border-bottom:1px solid #e6eaee; }
+          table.lines td { border-bottom:1px solid #eef2f6; padding:10px; }
+          td.right { text-align:right; }
+          .approved-head { background:#e8f6ee !important; }
+          .clickable { color:#015c2e; text-decoration:underline; cursor:pointer; }
+          .clickable:hover { color:#004d26; font-weight:700; }
+          .approved-input { width:100%; padding:6px; border:1px solid #dde3ea; border-radius:6px; text-align:right; }
+          .hint { color:#6c757d; font-size:11px; }
+          .muted { color:#6c757d; }
+          tfoot td.strong { font-weight:800; background:#f8fafc; }
+          tfoot td.green { color:#28a745; }
+
+          .att-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(280px,1fr)); gap:12px; }
+          .att-card { border:1px solid #e6eaee; border-radius:10px; padding:12px; background:#fff; }
+          .att-row { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+          .att-icon { font-size:22px; }
+          .att-meta strong { color:#015c2e; }
+          .att-actions { display:flex; gap:6px; }
+          .btn { padding:8px 12px; border-radius:8px; font-weight:700; cursor:pointer; border:none; }
+          .btn.dl { background:#0b8043; color:#fff; text-decoration:none; }
+          .btn.prev { background:#17a2b8; color:#fff; }
+
+          .history-block h4 { margin:6px 0; color:#1f2d3d; }
+          .level-item { padding:8px 10px; margin:8px 0; background:#fff; border:1px solid #e6eaee; border-radius:8px; }
+          .history-item { padding:8px 0; border-bottom:1px solid #eef2f6; }
+          .history-item:last-child { border-bottom:none; }
+
+          .lbl { display:block; margin:8px 0 6px; font-weight:800; color:#32455b; }
+          .ta { width:100%; padding:10px; border:1px solid #dde3ea; border-radius:10px; background:#fff; }
+          .action-buttons { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+          .btn.approve { background:#02733e; color:#fff; }
+          .btn.reject { background:#c62828; color:#fff; }
+          .btn.info { background:#c5a100; color:#fff; }
+
+          .amend-list { max-height:600px; overflow:auto; border:1px solid #e6eaee; border-radius:10px; background:#fff; }
+          .amend-card { padding:12px; border-bottom:1px solid #eef2f6; }
+          .amend-head { display:flex; justify-content:space-between; }
+          .pill { margin-left:10px; padding:4px 8px; border-radius:6px; font-size:12px; font-weight:800; color:#fff; }
+          .pill.approved { background:#28a745; }
+          .pill.rejected { background:#dc3545; }
+          .pill.pending { background:#ffc107; color:#333; }
+          .amend-title { margin:8px 0; display:flex; gap:10px; align-items:center; }
+          .amend-title .tt { padding:2px 6px; background:#e9edf5; border-radius:4px; font-size:11px; text-transform:capitalize; }
+          .note { background:#f8fafc; border:1px solid #eef2f6; padding:10px; border-radius:6px; }
+          .amend-nums { display:flex; gap:20px; font-size:14px; margin-top:8px; }
+          .amend-cta { margin-top:12px; background:#f8fafc; padding:16px; border-radius:10px; border:2px dashed #015c2e; }
+          .btn.big { background: linear-gradient(135deg,#015c2e,#28a745); color:#fff; }
+
+          .dist-overlay, .img-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:10000; }
+          .dist, .img-box { background:#fff; padding:20px; border-radius:12px; width:min(680px,92vw); max-height:85vh; overflow:auto; position:relative; box-shadow:0 10px 40px rgba(0,0,0,.35); }
+          .close.mini { position:absolute; top:8px; right:10px; background:none; border:none; cursor:pointer; font-size:20px; }
+          .img-box { display:flex; flex-direction:column; align-items:center; gap:10px; }
+          .img-box img { max-width:90vw; max-height:70vh; border-radius:8px; }
+          .img-title { position:absolute; top:-32px; left:0; color:#fff; }
+          .loading { padding:40px; text-align:center; }
+          .error { background:#ffecec; color:#b00020; border:1px solid #ffbcbc; padding:10px; border-radius:8px; }
+        `}</style>
       </div>
-
-      <style jsx>{`
-        .modal {
-          position: fixed;
-          top: 0;
-          left: 0;
-          width: 100%;
-          height: 100%;
-          background-color: rgba(0,0,0,0.6);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 1000;
-        }
-
-        .modal-content {
-          background: var(--card-bg);
-          margin: 5% auto;
-          padding: 30px;
-          width: 90%;
-          max-width: 800px;
-          max-height: 80%;
-          overflow-y: auto;
-          border-radius: 10px;
-          position: relative;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        }
-
-        .modal-close {
-          position: absolute;
-          top: 15px;
-          right: 25px;
-          font-size: 24px;
-          font-weight: bold;
-          cursor: pointer;
-          color: #666;
-          background: none;
-          border: none;
-        }
-
-        .modal-close:hover {
-          color: #000;
-        }
-
-        .modal-header {
-          border-bottom: 2px solid #015c2e;
-          padding-bottom: 15px;
-          margin-bottom: 20px;
-        }
-
-        .modal-header h2 {
-          color: #015c2e;
-          margin: 0;
-        }
-
-        .info-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-          margin-bottom: 20px;
-        }
-
-        .info-item {
-          background: #f8f9fa;
-          padding: 12px;
-          border-radius: 5px;
-          border-left: 3px solid #015c2e;
-        }
-
-        .info-item strong {
-          display: block;
-          color: #333;
-          margin-bottom: 5px;
-        }
-
-        .budget-entries {
-          margin-bottom: 20px;
-        }
-
-        .budget-entries h3 {
-          color: #015c2e;
-          margin-bottom: 15px;
-        }
-
-        .budget-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 20px;
-        }
-
-        .budget-table th,
-        .budget-table td {
-          padding: 12px;
-          text-align: left;
-          border-bottom: 1px solid #dee2e6;
-        }
-
-        .budget-table th {
-          background-color: #f8f9fa;
-          font-weight: bold;
-          color: #015c2e;
-        }
-
-        .description-section h3 {
-          color: #015c2e;
-          margin-bottom: 10px;
-        }
-
-        .description-section p {
-          line-height: 1.6;
-          color: var(--text-secondary);
-        }
-
-        .status-pending {
-          color: #fd7e14;
-          font-weight: bold;
-        }
-
-        .status-approved {
-          color: #28a745;
-          font-weight: bold;
-        }
-
-        .status-rejected {
-          color: #dc3545;
-          font-weight: bold;
-        }
-
-        .status-more_info_requested {
-          color: #856404;
-          font-weight: bold;
-        }
-        .assignment-banner {
-          margin-top: 10px;
-          padding: 10px 12px;
-          border-radius: 6px;
-          font-size: 14px;
-        }
-        .assignment-banner.you {
-          background: #e6f4ea;
-          color: #0f5132;
-          border: 1px solid #badbcc;
-        }
-        .assignment-banner.other {
-          background: #fde2e1;
-          color: #842029;
-          border: 1px solid #f5c2c7;
-        }
-        .actions { display: flex; gap: 10px; margin-top: 16px; }
-        .actions button { padding: 8px 14px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
-        .actions .approve { background: #00B04F; color: #fff; }
-        .actions .reject { background: #dc3545; color: #fff; }
-        .actions .request-info { background: #ffc107; color: #212529; }
-      `}</style>
     </div>
-  )
+  );
 }
-
-export default RequestModal
