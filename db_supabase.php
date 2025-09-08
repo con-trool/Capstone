@@ -2,20 +2,21 @@
 // Supabase PostgreSQL Database Configuration
 // Replace these values with your actual Supabase credentials
 
-$host = "db.ofpajqubjoxvqsxldpvo.supabase.co";  // Your Supabase host
-$port = "5432";  // PostgreSQL port
-$database = "postgres";  // Default Supabase database name
-$user = "postgres";  // Default Supabase user
-$password = "nfrvNZjs2akopOVk";  // Your Supabase database password
+// Use a single PostgreSQL connection string URL
+$connectionString = "postgresql://postgres:nfrvNZjs2akopOVk@db.ofpajqubjoxvqsxldpvo.supabase.co:5432/postgres?sslmode=require";
 
 // Create connection using PDO for PostgreSQL
 try {
-    $dsn = "pgsql:host=$host;port=$port;dbname=$database";
-    $conn = new PDO($dsn, $user, $password);
-    $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $options = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+    ];
+    $conn = new PDO($connectionString, null, null, $options);
 } catch(PDOException $e) {
-    die("Connection failed: " . $e->getMessage());
+    error_log("Database connection failed: " . $e->getMessage());
+    http_response_code(500);
+    die(json_encode(['success' => false, 'message' => 'Database connection failed']));
 }
 
 // Helper function to execute queries (similar to mysqli)

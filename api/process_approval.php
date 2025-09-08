@@ -1,5 +1,6 @@
 <?php
 session_start();
+require '../db_supabase.php';
 header('Content-Type: application/json');
 
 $allowed_roles = ['approver', 'department_head', 'dean', 'vp_finance'];
@@ -13,11 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
 require_once '../workflow_manager.php';
-$workflow = new WorkflowManager($pdo);
+$workflow = new WorkflowManager($conn);
 
 $request_id = $_POST['request_id'] ?? '';
 $action = $_POST['action'] ?? '';
@@ -30,7 +28,7 @@ if (empty($request_id) || empty($action)) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT id FROM account WHERE username_email = ?");
+    $stmt = $conn->prepare("SELECT id FROM budget_database_schema.account WHERE username_email = ?");
     $stmt->execute([$_SESSION['username']]);
     $approver_id = $stmt->fetchColumn();
 
@@ -38,10 +36,10 @@ try {
         throw new Exception('Approver not found');
     }
 
-    $stmt = $pdo->prepare("
+    $stmt = $conn->prepare("
         SELECT br.*, ap.status as approval_status, ap.approver_id, ap.approval_level 
-        FROM budget_request br
-        LEFT JOIN approval_progress ap ON br.request_id = ap.request_id 
+        FROM budget_database_schema.budget_request br
+        LEFT JOIN budget_database_schema.approval_progress ap ON br.request_id = ap.request_id 
             AND ap.approval_level = br.current_approval_level 
         WHERE br.request_id = ?
     ");
@@ -62,12 +60,12 @@ try {
 
     // If pending but assigned to different approver, allow reassignment when current user matches expected role
     if (!empty($request_data['approver_id']) && (int)$request_data['approver_id'] !== (int)$approver_id) {
-        $stmt = $pdo->prepare("SELECT approver_role FROM approval_workflow WHERE department_code = ? AND approval_level = ? LIMIT 1");
+        $stmt = $conn->prepare("SELECT approver_role FROM budget_database_schema.approval_workflow WHERE department_code = ? AND approval_level = ? LIMIT 1");
         $stmt->execute([$request_data['department_code'], $request_data['approval_level']]);
         $expected_role = $stmt->fetchColumn();
 
         if ($expected_role && $expected_role === $_SESSION['role']) {
-            $stmt = $pdo->prepare("UPDATE approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ?");
+            $stmt = $conn->prepare("UPDATE budget_database_schema.approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ?");
             $stmt->execute([$approver_id, $request_id, $request_data['approval_level']]);
         } else {
             throw new Exception('This request is assigned to a different approver');
@@ -81,17 +79,17 @@ try {
     if ($_SESSION['role'] === 'vp_finance' && $action === 'approve' && !empty($approved_amounts)) {
         foreach ($approved_amounts as $row_num => $approved_amount) {
             if (!empty($approved_amount) && is_numeric($approved_amount) && $approved_amount > 0) {
-                $stmt = $pdo->prepare("UPDATE budget_entries SET approved_amount = ? WHERE request_id = ? AND row_num = ?");
+                $stmt = $conn->prepare("UPDATE budget_database_schema.budget_entries SET approved_amount = ? WHERE request_id = ? AND row_num = ?");
                 $stmt->execute([$approved_amount, $request_id, $row_num]);
             }
         }
 
-        $stmt = $pdo->prepare("SELECT COALESCE(SUM(CASE WHEN approved_amount IS NOT NULL THEN approved_amount ELSE amount END), 0) as total_approved FROM budget_entries WHERE request_id = ?");
+        $stmt = $conn->prepare("SELECT COALESCE(SUM(CASE WHEN approved_amount IS NOT NULL THEN approved_amount ELSE amount END), 0) as total_approved FROM budget_database_schema.budget_entries WHERE request_id = ?");
         $stmt->execute([$request_id]);
         $total_approved = $stmt->fetchColumn();
 
         if ($total_approved > 0) {
-            $stmt = $pdo->prepare("UPDATE budget_request SET approved_budget = ? WHERE request_id = ?");
+            $stmt = $conn->prepare("UPDATE budget_database_schema.budget_request SET approved_budget = ? WHERE request_id = ?");
             $stmt->execute([$total_approved, $request_id]);
         }
     }
@@ -102,7 +100,7 @@ try {
         throw new Exception('Failed to process approval');
     }
 
-    $stmt = $pdo->prepare("SELECT status, current_approval_level, total_approval_levels, workflow_complete FROM budget_request WHERE request_id = ?");
+    $stmt = $conn->prepare("SELECT status, current_approval_level, total_approval_levels, workflow_complete FROM budget_database_schema.budget_request WHERE request_id = ?");
     $stmt->execute([$request_id]);
     $updated_request = $stmt->fetch(PDO::FETCH_ASSOC);
 

@@ -1,0 +1,6 @@
+﻿id	username_email	password	name	department_code	role
+1	testuser@example.com	testpass	Test User	999	requester
+2	dept.head@example.com	testpass	Department Head	999	department_head
+3	dean@example.com	testpass	College Dean	999	dean
+4	vp.finance@example.com	testpass	VP Finance	999	vp_finance
+5	approver@example.com	testpass	General Approver	999	approver

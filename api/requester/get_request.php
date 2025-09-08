@@ -1,6 +1,6 @@
 <?php
 session_start();
-require '../../db.php';
+require '../../db_supabase.php';
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['username']) || $_SESSION['role'] !== 'requester') {
@@ -15,12 +15,9 @@ if (empty($request_id)) {
     exit;
 }
 
-$pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
 try {
     // Get request details
-    $stmt = $pdo->prepare("SELECT * FROM budget_request WHERE request_id = ? AND account_id = ?");
+    $stmt = $conn->prepare("SELECT * FROM budget_database_schema.budget_request WHERE request_id = ? AND account_id = ?");
     $stmt->execute([$request_id, $_SESSION['user_id']]);
     $request = $stmt->fetch(PDO::FETCH_ASSOC);
 

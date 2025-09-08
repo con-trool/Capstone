@@ -1,6 +1,6 @@
 <?php
 session_start();
-require '../../db.php';
+require '../../db_supabase.php';
 header('Content-Type: application/json');
 
 $allowed_roles = ['approver', 'department_head', 'dean', 'vp_finance'];
@@ -9,14 +9,11 @@ if (!isset($_SESSION['username']) || !in_array($_SESSION['role'], $allowed_roles
     exit;
 }
 
-$pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
-$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
 require_once '../../workflow_manager.php';
-$workflow = new WorkflowManager($pdo);
+$workflow = new WorkflowManager($conn);
 
 $username = $_SESSION['username'];
-$stmt = $pdo->prepare("SELECT id FROM account WHERE username_email = ?");
+$stmt = $conn->prepare("SELECT id FROM budget_database_schema.account WHERE username_email = ?");
 $stmt->execute([$username]);
 $approver_id = $stmt->fetchColumn();
 
@@ -48,12 +45,12 @@ if ($view_mode === 'pending') {
         $sql = "SELECT br.*, a.name as requester_name, a.username_email as requester_email, 
                        d.college, d.budget_deck, 'vp_finance' as user_role,
                        COALESCE(ba_count.amendment_count, 0) as amendment_count
-                FROM budget_request br 
-                LEFT JOIN account a ON br.account_id = a.id 
-                LEFT JOIN department d ON br.department_code = d.code 
+                FROM budget_database_schema.budget_request br 
+                LEFT JOIN budget_database_schema.account a ON br.account_id = a.id 
+                LEFT JOIN budget_database_schema.department d ON br.department_code = d.code 
                 LEFT JOIN (
                     SELECT request_id, COUNT(*) as amendment_count 
-                    FROM budget_amendments 
+                    FROM budget_database_schema.budget_amendments 
                     GROUP BY request_id
                 ) ba_count ON br.request_id = ba_count.request_id
                 WHERE 1=1";
@@ -64,15 +61,15 @@ if ($view_mode === 'pending') {
                        d.college, d.budget_deck,
                        CASE WHEN ap.approver_id = ? AND ap.status = 'pending' THEN 'can_approve' ELSE 'view_only' END as user_role,
                        COALESCE(ba_count.amendment_count, 0) as amendment_count
-                FROM budget_request br 
-                LEFT JOIN account a ON br.account_id = a.id 
-                LEFT JOIN department d ON br.department_code = d.code 
-                LEFT JOIN approval_progress ap ON br.request_id = ap.request_id 
+                FROM budget_database_schema.budget_request br 
+                LEFT JOIN budget_database_schema.account a ON br.account_id = a.id 
+                LEFT JOIN budget_database_schema.department d ON br.department_code = d.code 
+                LEFT JOIN budget_database_schema.approval_progress ap ON br.request_id = ap.request_id 
                     AND ap.approval_level = br.current_approval_level 
                     AND ap.approver_id = ?
                 LEFT JOIN (
                     SELECT request_id, COUNT(*) as amendment_count 
-                    FROM budget_amendments 
+                    FROM budget_database_schema.budget_amendments 
                     GROUP BY request_id
                 ) ba_count ON br.request_id = ba_count.request_id
                 WHERE 1=1";
@@ -107,7 +104,7 @@ if ($view_mode === 'pending') {
             $sql .= " ORDER BY br.timestamp DESC";
     }
 
-    $stmt = $pdo->prepare($sql);
+    $stmt = $conn->prepare($sql);
     $stmt->execute($params);
     $requests = $stmt->fetchAll(PDO::FETCH_ASSOC);
 }

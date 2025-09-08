@@ -1,0 +1,2 @@
+﻿request_id	row_num	month_year	gl_code	budget_category_code	budget_description	remarks	amount	approved_amount	monthly_upload	manual_adjustment	upload_multiplier	fund_type_code	nature_code	fund_account	fund_name
+BR-20250901-1C38C	1	NULL	210304001	NULL	FHIT - SALARIES - 1	test	1232323.00	NULL	NULL	NULL	NULL	NULL	NULL	NULL	NULL

@@ -1,6 +1,6 @@
 <?php
 session_start();
-require '../../db.php';
+require '../../db_supabase.php';
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['username']) || $_SESSION['role'] !== 'requester') {
@@ -24,12 +24,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
     try {
         // Check if user owns this request
-        $stmt = $pdo->prepare("SELECT account_id FROM budget_request WHERE request_id = ?");
+        $stmt = $conn->prepare("SELECT account_id FROM budget_database_schema.budget_request WHERE request_id = ?");
         $stmt->execute([$request_id]);
         $request = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -39,8 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Update request
-        $stmt = $pdo->prepare("
-            UPDATE budget_request 
+        $stmt = $conn->prepare("
+            UPDATE budget_database_schema.budget_request 
             SET academic_year = ?, budget_title = ?, description = ?, fund_account = ?, fund_name = ?, duration = ?
             WHERE request_id = ? AND account_id = ?
         ");
@@ -58,10 +55,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // If this request was in 'more_info_requested', resume the workflow
         require_once '../../workflow_manager.php';
-        $workflow = new WorkflowManager($pdo);
+        $workflow = new WorkflowManager($conn);
 
         // Find the level that requested info
-        $stmt = $pdo->prepare("SELECT approval_level FROM approval_progress WHERE request_id = ? AND status = 'request_info' ORDER BY approval_level DESC LIMIT 1");
+        $stmt = $conn->prepare("SELECT approval_level FROM budget_database_schema.approval_progress WHERE request_id = ? AND status = 'request_info' ORDER BY approval_level DESC LIMIT 1");
         $stmt->execute([$request_id]);
         $requesting_level = $stmt->fetchColumn();
 
@@ -69,10 +66,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $workflow->resumeWorkflowAfterInfoProvidedWithTransaction($request_id, (int)$requesting_level);
         } else {
             // Fallback: if status is still more_info_requested but no row flagged, push back to pending
-            $stmt = $pdo->prepare("UPDATE budget_request SET status = 'pending' WHERE request_id = ? AND status = 'more_info_requested'");
+            $stmt = $conn->prepare("UPDATE budget_database_schema.budget_request SET status = 'pending' WHERE request_id = ? AND status = 'more_info_requested'");
             $stmt->execute([$request_id]);
             // Reset any request_info rows just in case
-            $stmt = $pdo->prepare("UPDATE approval_progress SET status = 'pending' WHERE request_id = ? AND status = 'request_info'");
+            $stmt = $conn->prepare("UPDATE budget_database_schema.approval_progress SET status = 'pending' WHERE request_id = ? AND status = 'request_info'");
             $stmt->execute([$request_id]);
         }
 

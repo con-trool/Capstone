@@ -1,6 +1,6 @@
 <?php
 session_start();
-require '../../db.php';
+require '../../db_supabase.php';
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['username']) || $_SESSION['role'] !== 'requester') {
@@ -23,18 +23,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
     try {
         // Generate request ID
         $request_id = 'BR-' . date('Ymd') . '-' . strtoupper(substr(md5(uniqid()), 0, 4));
         
         // Insert budget request
-        $stmt = $pdo->prepare("
-            INSERT INTO budget_request 
+        $stmt = $conn->prepare("
+            INSERT INTO budget_database_schema.budget_request 
             (request_id, account_id, academic_year, budget_title, description, fund_account, fund_name, duration, status, timestamp) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NOW())
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
         ");
         
         $stmt->execute([

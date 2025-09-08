@@ -1,6 +1,6 @@
 <?php
 session_start();
-require '../../db.php';
+require '../../db_supabase.php';
 header('Content-Type: application/json');
 
 if (!isset($_SESSION['username']) || $_SESSION['role'] !== 'requester') {
@@ -17,12 +17,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    $pdo = new PDO("mysql:host=localhost;dbname=budget_database_schema", "root", "");
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
     try {
         // Check if user owns this request
-        $stmt = $pdo->prepare("SELECT account_id FROM budget_request WHERE request_id = ?");
+        $stmt = $conn->prepare("SELECT account_id FROM budget_database_schema.budget_request WHERE request_id = ?");
         $stmt->execute([$request_id]);
         $request = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -32,7 +29,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Check if request can be deleted (only pending requests that haven't been processed)
-        $stmt = $pdo->prepare("SELECT status FROM budget_request WHERE request_id = ?");
+        $stmt = $conn->prepare("SELECT status FROM budget_database_schema.budget_request WHERE request_id = ?");
         $stmt->execute([$request_id]);
         $status = $stmt->fetchColumn();
 
@@ -42,19 +39,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Start transaction
-        $pdo->beginTransaction();
+        $conn->beginTransaction();
 
         // Delete related records
-        $pdo->prepare("DELETE FROM budget_amendments WHERE request_id = ?")->execute([$request_id]);
-        $pdo->prepare("DELETE FROM approval_progress WHERE request_id = ?")->execute([$request_id]);
-        $pdo->prepare("DELETE FROM budget_entries WHERE request_id = ?")->execute([$request_id]);
-        $pdo->prepare("DELETE FROM budget_request WHERE request_id = ?")->execute([$request_id]);
+        $conn->prepare("DELETE FROM budget_database_schema.budget_amendments WHERE request_id = ?")->execute([$request_id]);
+        $conn->prepare("DELETE FROM budget_database_schema.approval_progress WHERE request_id = ?")->execute([$request_id]);
+        $conn->prepare("DELETE FROM budget_database_schema.budget_entries WHERE request_id = ?")->execute([$request_id]);
+        $conn->prepare("DELETE FROM budget_database_schema.budget_request WHERE request_id = ?")->execute([$request_id]);
 
-        $pdo->commit();
+        $conn->commit();
 
         echo json_encode(['success' => true, 'message' => 'Request deleted successfully']);
     } catch (Exception $e) {
-        $pdo->rollBack();
+        $conn->rollBack();
         echo json_encode(['success' => false, 'message' => 'Error deleting request: ' . $e->getMessage()]);
     }
 } else {

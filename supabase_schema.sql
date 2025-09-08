@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS department CASCADE;
 DROP TABLE IF EXISTS division CASCADE;
 DROP TABLE IF EXISTS cluster CASCADE;
 DROP TABLE IF EXISTS group_table CASCADE;
+
 DROP TABLE IF EXISTS campus CASCADE;
 DROP TABLE IF EXISTS gl_account CASCADE;
 DROP TABLE IF EXISTS budget_category CASCADE;
@@ -438,7 +439,8 @@ CREATE INDEX idx_history_request ON history(request_id);
 CREATE INDEX idx_attachments_request ON attachments(request_id);
 CREATE INDEX idx_budget_amendments_request ON budget_amendments(request_id);
 
--- Enable Row Level Security (RLS) for better security
+-- Enable Row Level Security (RLS) for better security (DONT ENABLE THIS YET)
+/*
 ALTER TABLE account ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_request ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_entries ENABLE ROW LEVEL SECURITY;
@@ -449,12 +451,15 @@ ALTER TABLE budget_amendments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE budget_amendment_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE amendment_attachments ENABLE ROW LEVEL SECURITY;
 
--- Create basic RLS policies (you can customize these based on your needs)
+-- Create basic RLS policies (you can customize these based on your needs) (DONT ENABLE THIS YET)
+/*
 CREATE POLICY "Users can view their own account" ON account FOR SELECT USING (auth.uid()::text = id::text);
 CREATE POLICY "Users can view budget requests from their department" ON budget_request FOR SELECT USING (department_code IN (SELECT department_code FROM account WHERE id = auth.uid()::integer));
 CREATE POLICY "Users can view budget entries for their requests" ON budget_entries FOR SELECT USING (request_id IN (SELECT request_id FROM budget_request WHERE account_id = auth.uid()::integer));
+*/
 
--- Grant necessary permissions
-GRANT USAGE ON SCHEMA public TO anon, authenticated;
+-- Grant necessary permissions (DONT ENABLE THIS YET)
+/* GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
+*/
