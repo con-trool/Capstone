@@ -2,21 +2,26 @@
 // Supabase PostgreSQL Database Configuration
 // Replace these values with your actual Supabase credentials
 
-// Use a single PostgreSQL connection string URL
-$connectionString = "postgresql://postgres:nfrvNZjs2akopOVk@db.ofpajqubjoxvqsxldpvo.supabase.co:5432/postgres?sslmode=require";
+$host = "aws-1-ap-southeast-1.pooler.supabase.com";  // Supavisor Session Pooler host (IPv4-friendly)
+$port = "5432";  // PostgreSQL port (Session Pooler)
+$database = "postgres";  // Default Supabase database name
+$user = "postgres.ofpajqubjoxvqsxldpvo";  // Session pooler username (project-scoped)
+$password = "hidden password for security";  // Your Supabase database password
 
 // Create connection using PDO for PostgreSQL
 try {
+    $dsn = "pgsql:host=$host;port=$port;dbname=$database;sslmode=require";
     $options = [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        // Session pooler supports server-side prepares; keep emulate_prepares disabled
         PDO::ATTR_EMULATE_PREPARES => false,
     ];
-    $conn = new PDO($connectionString, null, null, $options);
+    $conn = new PDO($dsn, $user, $password, $options);
 } catch(PDOException $e) {
     error_log("Database connection failed: " . $e->getMessage());
     http_response_code(500);
-    die(json_encode(['success' => false, 'message' => 'Database connection failed']));
+    die(json_encode(['success' => false, 'message' => 'Database connection failed ' . $e->getMessage()]));
 }
 
 // Helper function to execute queries (similar to mysqli)
