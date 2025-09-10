@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost/Capstone', // Your XAMPP Apache server
+        target: 'http://localhost:8080', // PHP built-in server
         changeOrigin: true,
         // Don't rewrite the path - keep /api prefix since our files are in /api directory
       },

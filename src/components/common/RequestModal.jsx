@@ -378,45 +378,90 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
               </div>
             )}
 
-            {/* ===== Workflow / Activity ===== */}
-            {(approvalHistory.length > 0 || activityHistory.length > 0) && (
+            {/* ===== Current Assignment ===== */}
+            {req && req.status === 'pending' && (
               <div className="panel">
                 <div className="panel-head">
-                  <span className="panel-icon">🧩</span>
+                  <span className="panel-icon">👤</span>
+                  <h3>Current Assignment</h3>
+                </div>
+                <div className="assignment-info">
+                  <div className="assignment-card">
+                    <div className="assignment-label">Currently Assigned To:</div>
+                    <div className="assignment-value">
+                      {req.current_approver_name || "Unassigned"}
+                      {req.current_approver_role && (
+                        <span className="assignment-role">({req.current_approver_role})</span>
+                      )}
+                    </div>
+                    <div className="assignment-level">
+                      Level {req.current_approval_level} of {req.total_approval_levels}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ===== Approval Workflow ===== */}
+            {approvalHistory.length > 0 && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">📋</span>
                   <h3>Approval Workflow</h3>
                 </div>
-
-                {approvalHistory.length > 0 && (
-                  <div className="history-block">
-                    <h4>Approval Levels:</h4>
-                    {approvalHistory.map((ah, i) => {
-                      const s = String(ah.status || "").toLowerCase();
-                      const color =
-                        s === "approved" ? "#28a745" : s === "rejected" ? "#dc3545" : s === "pending" ? "#ffc107" : "#6c757d";
-                      return (
-                        <div key={i} className="level-item" style={{ borderLeft: `3px solid ${color}` }}>
-                          <strong>Level {ah.approval_level}:</strong> {ah.approver_name || "Unassigned"}
-                          <br />
-                          <span style={{ color, fontWeight: 700 }}>Status: {ah.status ? ah.status[0].toUpperCase() + ah.status.slice(1) : "—"}</span>
-                          {ah.timestamp && s !== "pending" && (<><br /><small>{new Date(ah.timestamp).toLocaleString()}</small></>)}
-                          {ah.comments && (<><br /><em>"{ah.comments}"</em></>)}
+                <div className="workflow-timeline">
+                  {approvalHistory.map((ah, i) => {
+                    const s = String(ah.status || "").toLowerCase();
+                    const isCompleted = s === "approved" || s === "rejected";
+                    const isCurrent = req && req.current_approval_level == ah.approval_level && s === "pending";
+                    const isPending = s === "pending" && !isCurrent;
+                    
+                    return (
+                      <div key={i} className={`workflow-step ${isCompleted ? 'completed' : isCurrent ? 'current' : isPending ? 'pending' : 'upcoming'}`}>
+                        <div className="step-indicator">
+                          <div className="step-circle">
+                            {isCompleted ? "✓" : isCurrent ? "●" : isPending ? "⏳" : "○"}
+                          </div>
+                          {i < approvalHistory.length - 1 && <div className="step-line"></div>}
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {activityHistory.length > 0 && (
-                  <div className="history-block">
-                    <h4>Activity History:</h4>
-                    {activityHistory.map((h, i) => (
-                      <div key={i} className="history-item">
-                        <strong>{new Date(h.timestamp).toLocaleString()}</strong> — {h.approver_name || "System"}
-                        <br /><em>{h.action}</em>
+                        <div className="step-content">
+                          <div className="step-header">
+                            <span className="step-level">Level {ah.approval_level}</span>
+                            <span className="step-status">{ah.status || "Pending"}</span>
+                          </div>
+                          <div className="step-approver">{ah.approver_name || "Unassigned"}</div>
+                          {ah.timestamp && isCompleted && (
+                            <div className="step-time">{new Date(ah.timestamp).toLocaleString()}</div>
+                          )}
+                          {ah.comments && isCompleted && (
+                            <div className="step-comments">"{ah.comments}"</div>
+                          )}
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* ===== Activity History ===== */}
+            {activityHistory.length > 0 && (
+              <div className="panel">
+                <div className="panel-head">
+                  <span className="panel-icon">📝</span>
+                  <h3>Activity History</h3>
+                </div>
+                <div className="activity-timeline">
+                  {activityHistory.map((h, i) => (
+                    <div key={i} className="activity-item">
+                      <div className="activity-time">{new Date(h.timestamp).toLocaleString()}</div>
+                      <div className="activity-content">
+                        <div className="activity-user">{h.approver_name || "System"}</div>
+                        <div className="activity-action">{h.action}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -597,10 +642,61 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
           .btn.dl { background:#0b8043; color:#fff; text-decoration:none; }
           .btn.prev { background:#17a2b8; color:#fff; }
 
-          .history-block h4 { margin:6px 0; color:#1f2d3d; }
-          .level-item { padding:8px 10px; margin:8px 0; background:#fff; border:1px solid #e6eaee; border-radius:8px; }
-          .history-item { padding:8px 0; border-bottom:1px solid #eef2f6; }
-          .history-item:last-child { border-bottom:none; }
+          /* Current Assignment Styles */
+          .assignment-info { margin-top: 12px; }
+          .assignment-card { background: #f8fafc; border: 2px solid #e2e8f0; border-radius: 12px; padding: 20px; }
+          .assignment-label { font-size: 14px; color: #64748b; font-weight: 600; margin-bottom: 8px; }
+          .assignment-value { font-size: 18px; font-weight: 700; color: #1e293b; margin-bottom: 4px; }
+          .assignment-role { font-size: 14px; color: #64748b; font-weight: 500; margin-left: 8px; }
+          .assignment-level { font-size: 14px; color: #64748b; }
+
+          /* Workflow Timeline Styles */
+          .workflow-timeline { margin-top: 16px; }
+          .workflow-step { display: flex; margin-bottom: 20px; position: relative; }
+          .step-indicator { display: flex; flex-direction: column; align-items: center; margin-right: 16px; }
+          .step-circle { 
+            width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 16px; z-index: 2; position: relative;
+          }
+          .workflow-step.completed .step-circle { background: #10b981; color: white; }
+          .workflow-step.current .step-circle { background: #3b82f6; color: white; }
+          .workflow-step.pending .step-circle { background: #f59e0b; color: white; }
+          .workflow-step.upcoming .step-circle { background: #e5e7eb; color: #6b7280; }
+          .step-line { 
+            width: 2px; height: 40px; background: #e5e7eb; margin-top: 4px;
+          }
+          .workflow-step.completed .step-line { background: #10b981; }
+          .workflow-step.current .step-line { background: #3b82f6; }
+          
+          .step-content { flex: 1; }
+          .step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+          .step-level { font-weight: 700; color: #1e293b; }
+          .step-status { 
+            padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600;
+            background: #f1f5f9; color: #475569;
+          }
+          .workflow-step.completed .step-status { background: #dcfce7; color: #166534; }
+          .workflow-step.current .step-status { background: #dbeafe; color: #1e40af; }
+          .workflow-step.pending .step-status { background: #fef3c7; color: #92400e; }
+          
+          .step-approver { font-weight: 600; color: #374151; margin-bottom: 4px; }
+          .step-time { font-size: 12px; color: #6b7280; margin-bottom: 4px; }
+          .step-comments { font-size: 14px; color: #4b5563; font-style: italic; background: #f9fafb; padding: 8px; border-radius: 6px; }
+
+          /* Activity Timeline Styles */
+          .activity-timeline { margin-top: 16px; }
+          .activity-item { 
+            display: flex; padding: 12px 0; border-bottom: 1px solid #f1f5f9; 
+            align-items: flex-start; gap: 12px;
+          }
+          .activity-item:last-child { border-bottom: none; }
+          .activity-time { 
+            font-size: 12px; color: #6b7280; font-weight: 500; 
+            min-width: 140px; flex-shrink: 0;
+          }
+          .activity-content { flex: 1; }
+          .activity-user { font-weight: 600; color: #374151; margin-bottom: 2px; }
+          .activity-action { color: #4b5563; font-size: 14px; }
 
           .lbl { display:block; margin:8px 0 6px; font-weight:800; color:#32455b; }
           .ta { width:100%; padding:10px; border:1px solid #dde3ea; border-radius:10px; background:#fff; }
