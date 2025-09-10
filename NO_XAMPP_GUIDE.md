@@ -80,6 +80,10 @@ cd budget-management-system
 
 ### Step 4: Configure PHP Path (Use XAMPP's PHP)
 
+**VERY IMPORTANT PLEASE READ: UNCHECK ;extension=pdo_pgsql by removing ; for PostGRESQL TO WORK**
+**THIS ONLY APPLIES FOR THE PHP BACKEND VERSION OF THE BUDGET MANAGEMENT APP**
+**YOU CAN FIND THIS IN C: or D:/XAMPP/php/php.ini** 
+
 1. **Add XAMPP PHP to PATH**:
    - Press `Win + R`, type `sysdm.cpl`, press Enter
    - Click "Environment Variables"
