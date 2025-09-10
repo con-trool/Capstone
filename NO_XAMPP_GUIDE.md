@@ -215,7 +215,7 @@ project/
 
 ## Production Deployment Options
 
-### Option 1: Static Hosting + PHP Backend (Recommended)
+### Option 1: Static Hosting + PHP Backend (For now)
 ```bash
 # 1. Build React app for production
 npm run build

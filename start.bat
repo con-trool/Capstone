@@ -11,27 +11,34 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM Check if PHP is available (try XAMPP first, then PATH)
-D:\xampp\php\php.exe --version >nul 2>&1
+REM Check if PHP is available (try PATH first, then common XAMPP locations)
+php --version >nul 2>&1
 if %errorlevel% neq 0 (
-    php --version >nul 2>&1
+    REM Try common XAMPP installation paths
+    C:\xampp\php\php.exe --version >nul 2>&1
     if %errorlevel% neq 0 (
-        echo ERROR: PHP is not available
-        echo.
-        echo OPTION 1: Install PHP standalone
-        echo   Download from: https://windows.php.net/download/
-        echo.
-        echo OPTION 2: Use XAMPP's PHP (add to PATH)
-        echo   Add this to your PATH: D:\xampp\php
-        echo   Then restart this command prompt
-        echo.
-        pause
-        exit /b 1
+        D:\xampp\php\php.exe --version >nul 2>&1
+        if %errorlevel% neq 0 (
+            echo ERROR: PHP is not available
+            echo.
+            echo OPTION 1: Install PHP standalone
+            echo   Download from: https://windows.php.net/download/
+            echo.
+            echo OPTION 2: Use XAMPP's PHP (add to PATH)
+            echo   Add XAMPP's PHP directory to your PATH environment variable
+            echo   Common locations: C:\xampp\php or D:\xampp\php
+            echo   Then restart this command prompt
+            echo.
+            pause
+            exit /b 1
+        ) else (
+            set PHP_CMD=D:\xampp\php\php.exe
+        )
     ) else (
-        set PHP_CMD=php
+        set PHP_CMD=C:\xampp\php\php.exe
     )
 ) else (
-    set PHP_CMD=D:\xampp\php\php.exe
+    set PHP_CMD=php
 )
 
 echo ✓ Node.js found
