@@ -13,7 +13,7 @@
   aria-labelledby="budgetModalLabel"
   aria-hidden="true"
 >
-  <div class="modal-dialog modal-dialog-centered modal-lg">
+  <div class="modal-dialog modal-lg budget-modal-full">
     <div class="modal-content" style="background-color:#f5f5f5; border-radius:8px;">
       <!-- Header -->
       <div
@@ -123,6 +123,24 @@
 
 
 <style>
+  /* Custom modal positioning for full height display */
+  .budget-modal-full {
+    margin: 20px auto;
+    max-width: 95vw;
+    height: calc(100vh - 40px);
+  }
+  
+  .budget-modal-full .modal-content {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .budget-modal-full .modal-body {
+    flex: 1;
+    overflow-y: auto;
+  }
+
   #line-items-container .line-item {
     background: #fff;
     border: 1px solid #ddd;

@@ -95,16 +95,17 @@
   background-color: rgba(0,0,0,0.5);
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   z-index: 1000;
+  padding: 20px;
 }
 
 .modal-content {
   background: var(--card-bg);
   border-radius: 15px;
   padding: 30px;
-  max-width: 90%;
-  max-height: 90%;
+  width: 95%;
+  height: calc(100vh - 40px);
   overflow-y: auto;
   position: relative;
   box-shadow: 0 4px 20px rgba(0,0,0,0.15);

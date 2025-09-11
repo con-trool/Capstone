@@ -159,7 +159,7 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
         ) : !req ? (
           <div className="error">Request not found.</div>
         ) : (
-          <>
+          <div className="modal-content-wrapper">
             {/* ===== Request Overview (new look) ===== */}
             <div className="panel">
               <div className="panel-head">
@@ -208,12 +208,12 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
                   <div className="value"><span className="chip chip-indigo">{req.academic_year}</span></div>
                 </div>
 
-                <div className="info-card span-2">
+                <div className="info-card">
                   <div className="label">Total Amount:</div>
                   <div className="value amount">{peso(req.proposed_budget)}</div>
                 </div>
 
-                <div className="info-card span-2">
+                <div className="info-card">
                   <div className="label">Submitted:</div>
                   <div className="value">{new Date(req.timestamp).toLocaleString()}</div>
                 </div>
@@ -410,36 +410,49 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
                   <h3>Approval Workflow</h3>
                 </div>
                 <div className="workflow-timeline">
-                  {approvalHistory.map((ah, i) => {
-                    const s = String(ah.status || "").toLowerCase();
-                    const isCompleted = s === "approved" || s === "rejected";
-                    const isCurrent = req && req.current_approval_level == ah.approval_level && s === "pending";
-                    const isPending = s === "pending" && !isCurrent;
-                    
-                    return (
-                      <div key={i} className={`workflow-step ${isCompleted ? 'completed' : isCurrent ? 'current' : isPending ? 'pending' : 'upcoming'}`}>
-                        <div className="step-indicator">
-                          <div className="step-circle">
-                            {isCompleted ? "✓" : isCurrent ? "●" : isPending ? "⏳" : "○"}
+                  {approvalHistory
+                    .reduce((unique, ah) => {
+                      const existing = unique.find(item => item.approval_level === ah.approval_level);
+                      if (!existing) {
+                        unique.push(ah);
+                      } else if (ah.timestamp && (!existing.timestamp || new Date(ah.timestamp) > new Date(existing.timestamp))) {
+                        // Replace with more recent entry if available
+                        const index = unique.findIndex(item => item.approval_level === ah.approval_level);
+                        unique[index] = ah;
+                      }
+                      return unique;
+                    }, [])
+                    .sort((a, b) => (a.approval_level || 0) - (b.approval_level || 0))
+                    .map((ah, i, deduplicatedArray) => {
+                      const s = String(ah.status || "").toLowerCase();
+                      const isCompleted = s === "approved" || s === "rejected";
+                      const isCurrent = req && req.current_approval_level == ah.approval_level && s === "pending";
+                      const isPending = s === "pending" && !isCurrent;
+                      
+                      return (
+                        <div key={`${ah.approval_level}-${i}`} className={`workflow-step ${isCompleted ? 'completed' : isCurrent ? 'current' : isPending ? 'pending' : 'upcoming'}`}>
+                          <div className="step-indicator">
+                            <div className="step-circle">
+                              {isCompleted ? "✓" : isCurrent ? "●" : isPending ? "⏳" : "○"}
+                            </div>
+                            {i < deduplicatedArray.length - 1 && <div className="step-line"></div>}
                           </div>
-                          {i < approvalHistory.length - 1 && <div className="step-line"></div>}
-                        </div>
-                        <div className="step-content">
-                          <div className="step-header">
-                            <span className="step-level">Level {ah.approval_level}</span>
-                            <span className="step-status">{ah.status || "Pending"}</span>
+                          <div className="step-content">
+                            <div className="step-header">
+                              <span className="step-level">Level {ah.approval_level}</span>
+                              <span className="step-status">{ah.status || "Pending"}</span>
+                            </div>
+                            <div className="step-approver">{ah.approver_name || "Unassigned"}</div>
+                            {ah.timestamp && isCompleted && (
+                              <div className="step-time">{new Date(ah.timestamp).toLocaleString()}</div>
+                            )}
+                            {ah.comments && isCompleted && (
+                              <div className="step-comments">"{ah.comments}"</div>
+                            )}
                           </div>
-                          <div className="step-approver">{ah.approver_name || "Unassigned"}</div>
-                          {ah.timestamp && isCompleted && (
-                            <div className="step-time">{new Date(ah.timestamp).toLocaleString()}</div>
-                          )}
-                          {ah.comments && isCompleted && (
-                            <div className="step-comments">"{ah.comments}"</div>
-                          )}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               </div>
             )}
@@ -542,7 +555,7 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
 
         {/* Distribution Modal */}
@@ -582,24 +595,25 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
 
         {/* ====== NEW THEME STYLES ====== */}
         <style jsx>{`
-          .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 9999; }
-          .modal { position: relative; background: #fff; border-radius: 12px; padding: 18px 18px 28px; width: min(1100px, 92vw); max-height: 92vh; overflow: auto; box-shadow: 0 8px 40px rgba(0,0,0,.25); }
+          .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: flex-start; justify-content: center; z-index: 9999; padding: 20px; }
+          .modal { position: relative; background: #fff; border-radius: 12px; padding: 16px 16px 24px; width: min(650px, 75vw); max-width: 75vw; height: calc(100vh - 40px); overflow: hidden; box-shadow: 0 8px 40px rgba(0,0,0,.25); display: flex; flex-direction: column; box-sizing: border-box; }
+          .modal-content-wrapper { flex: 1; overflow-y: auto; overflow-x: hidden; padding-right: 4px; }
           .close { position: absolute; top: 8px; right: 12px; font-size: 22px; border: none; background: none; cursor: pointer; }
 
-          .panel { background: #f7f9fb; border: 1px solid #e6eaee; border-radius: 12px; padding: 16px; margin: 12px 0 18px; box-shadow: 0 1px 0 #eef2f6 inset; }
+          .panel { background: #f7f9fb; border: 1px solid #e6eaee; border-radius: 12px; padding: 14px 16px; margin: 10px 0 14px; box-shadow: 0 1px 0 #eef2f6 inset; display: block; width: 100%; }
           .panel-head { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
           .panel-head h3 { margin:0; font-size:18px; font-weight:800; color:#1f2d3d; }
           .panel-icon { font-size:18px; }
 
-          .overview-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px; }
-          @media (max-width: 840px){ .overview-grid { grid-template-columns: 1fr; } }
+          .overview-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; width: 100%; box-sizing: border-box; }
+          @media (max-width: 768px) { .overview-grid { grid-template-columns: repeat(2, 1fr); } }
+          @media (max-width: 480px) { .overview-grid { grid-template-columns: 1fr; } }
 
-          .info-card { background:#fff; border:1px solid #e6eaee; border-radius:10px; padding:12px 14px; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+          .info-card { background:#fff; border:1px solid #e6eaee; border-radius:10px; padding:10px 12px; position:relative; box-shadow:0 1px 2px rgba(16,24,40,.04); min-width: 0; word-wrap: break-word; overflow: hidden; display: flex; flex-direction: column; height: 100%; }
           .info-card::before { content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:#e6eaee; border-top-left-radius:10px; border-bottom-left-radius:10px; }
           .info-card.accent-green::before { background:#28a745; }
-          .span-2 { grid-column: span 2; }
           .label { font-weight:700; color:#32455b; margin-bottom:4px; }
-          .value { color:#1f2d3d; }
+          .value { color:#1f2d3d; overflow: hidden; text-overflow: ellipsis; flex: 1; }
           .value.strong { font-weight:800; letter-spacing:.3px; }
           .value.amount { color:#0f9d58; font-weight:800; font-size:18px; }
           .ok { color:#28a745; font-weight:700; }
@@ -608,17 +622,17 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
           .chip-pink { background:#ffe4f1; color:#a70d5d; }
           .chip-indigo { background:#e7edff; color:#3340a5; }
 
-          .status-chip { padding:4px 10px; border-radius:999px; font-weight:800; background:#eee; }
+          .status-chip { padding:4px 8px; border-radius:999px; font-weight:800; background:#eee; display: inline-block; }
           .status-chip.approved { color:#28a745; background:rgba(40,167,69,.12); }
           .status-chip.pending { color:#fd7e14; background:rgba(253,126,20,.12); }
           .status-chip.rejected { color:#dc3545; background:rgba(220,53,69,.12); }
           .status-chip.more_info_requested { color:#856404; background:rgba(133,100,4,.12); }
 
-          .block { background:#fff; border:1px solid #e6eaee; border-radius:10px; padding:12px 14px; margin-bottom:12px; }
+          .block { background:#fff; border:1px solid #e6eaee; border-radius:10px; padding:12px 14px; margin-bottom:12px; width: 100%; box-sizing: border-box; }
           .block-label { font-weight:800; color:#32455b; margin-bottom:6px; }
-          .block-body { color:#1f2d3d; background:#f8fafc; border:1px solid #eef2f6; padding:10px; border-radius:8px; }
+          .block-body { color:#1f2d3d; background:#f8fafc; border:1px solid #eef2f6; padding:10px; border-radius:8px; width: 100%; box-sizing: border-box; }
 
-          .table-wrap { overflow-x:auto; }
+          .table-wrap { overflow-x:auto;}
           table.lines { width:100%; border-collapse:collapse; font-size:14px; background:#fff; border:1px solid #e6eaee; border-radius:10px; overflow:hidden; }
           table.lines thead th { background:#f0f3f8; color:#1f2d3d; text-align:left; padding:10px; border-bottom:1px solid #e6eaee; }
           table.lines td { border-bottom:1px solid #eef2f6; padding:10px; }
