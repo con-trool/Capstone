@@ -52,10 +52,30 @@ try {
 
     if (is_null($request_data['current_approval_level'])) {
         $workflow->initializeWorkflow($request_id);
+        // Refresh data after initialization
+        $stmt->execute([$request_id]);
+        $request_data = $stmt->fetch(PDO::FETCH_ASSOC) ?: $request_data;
+    }
+
+    // Ensure current level has an approver assigned if missing (stabilize current assignment)
+    if (!empty($request_data['current_approval_level']) && empty($request_data['approver_id'])) {
+        $workflow->ensureApproverForLevel($request_id, (int)$request_data['current_approval_level']);
+        // Re-fetch joined row
+        $stmt->execute([$request_id]);
+        $request_data = $stmt->fetch(PDO::FETCH_ASSOC) ?: $request_data;
     }
 
     if ($request_data['approval_status'] !== 'pending') {
-        throw new Exception('This request is not pending your approval');
+        // Debug: show what status we got and why it's not pending
+        $debug_info = [
+            'approval_status' => $request_data['approval_status'],
+            'current_approval_level' => $request_data['current_approval_level'],
+            'approver_id' => $request_data['approver_id'],
+            'acting_approver_id' => $approver_id,
+            'session_role' => $_SESSION['role'] ?? null,
+            'request_status' => $request_data['status'] ?? null
+        ];
+        throw new Exception('This request is not pending your approval. Debug: ' . json_encode($debug_info));
     }
 
     // If pending but assigned to different approver, allow reassignment when current user matches expected role

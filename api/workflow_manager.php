@@ -130,6 +130,9 @@ class WorkflowManager {
                         WHERE request_id = ? AND approval_level = ?
                     ");
                     $stmt->execute([$request_id, $next_level]);
+
+                    // Ensure the next level has an approver assigned
+                    $this->assignApproverIfMissing($request_id, $next_level);
                 }
             } else if ($action === 'reject') {
                 // Mark current level as rejected
@@ -151,6 +154,15 @@ class WorkflowManager {
                 // DB constraint disallows a custom 'request_info' status on approval_progress.
                 // Use 'waiting' as the status but prefix comments to mark info-request.
                 $taggedComments = '[request_info] ' . (string)$comments;
+                // Ensure approver is assigned at current level; prefer the acting approver
+                $setActing = $this->pdo->prepare("
+                    UPDATE budget_database_schema.approval_progress
+                    SET approver_id = ?
+                    WHERE request_id = ? AND approval_level = ? AND (approver_id IS NULL OR approver_id <> ?)
+                ");
+                $setActing->execute([$approver_id, $request_id, $current_level, $approver_id]);
+                // If still NULL, assign via workflow mapping
+                $this->assignApproverIfMissing($request_id, $current_level);
                 // Prefer matching approver_id; fall back to level-only pending row
                 $stmt = $this->pdo->prepare("
                     UPDATE budget_database_schema.approval_progress 
@@ -271,6 +283,64 @@ class WorkflowManager {
         }
         
         return $levels;
+    }
+
+    /**
+     * Assign approver to a level if approver_id is NULL, using workflow role mapping
+     */
+    private function assignApproverIfMissing($request_id, $level) {
+        // Get request department
+        $stmt = $this->pdo->prepare("SELECT department_code FROM budget_database_schema.budget_request WHERE request_id = ?");
+        $stmt->execute([$request_id]);
+        $dept = $stmt->fetchColumn();
+        if (!$dept) { return; }
+
+        // Get expected role for this level
+        $stmt = $this->pdo->prepare("SELECT approver_role FROM budget_database_schema.approval_workflow WHERE department_code = ? AND approval_level = ? LIMIT 1");
+        $stmt->execute([$dept, $level]);
+        $role = $stmt->fetchColumn();
+        if (!$role) { return; }
+
+        // Find account by role (prefer same department)
+        $stmt = $this->pdo->prepare("SELECT id FROM budget_database_schema.account WHERE role = ? AND department_code = ? LIMIT 1");
+        $stmt->execute([$role, $dept]);
+        $aid = $stmt->fetchColumn();
+        if (!$aid) {
+            $stmt = $this->pdo->prepare("SELECT id FROM budget_database_schema.account WHERE role = ? LIMIT 1");
+            $stmt->execute([$role]);
+            $aid = $stmt->fetchColumn();
+        }
+        if (!$aid) { return; }
+
+        // Assign if currently NULL
+        $stmt = $this->pdo->prepare("UPDATE budget_database_schema.approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ? AND approver_id IS NULL");
+        $stmt->execute([$aid, $request_id, $level]);
+    }
+
+    /**
+     * Assign approver based on the last approved level (carry-forward when unassigned)
+     */
+    private function assignFromLastApprovedIfMissing($request_id, $level) {
+        // Find the most recent approved row below this level
+        $stmt = $this->pdo->prepare("SELECT approver_id FROM budget_database_schema.approval_progress WHERE request_id = ? AND approval_level < ? AND status = 'approved' ORDER BY approval_level DESC LIMIT 1");
+        $stmt->execute([$request_id, $level]);
+        $last = $stmt->fetchColumn();
+        if (!$last) { return; }
+        $stmt = $this->pdo->prepare("UPDATE budget_database_schema.approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ? AND approver_id IS NULL");
+        $stmt->execute([$last, $request_id, $level]);
+    }
+
+    /**
+     * Public helper for external callers to ensure approver is assigned at a level
+     */
+    public function ensureApproverForLevel($request_id, $level) {
+        try {
+            $this->assignApproverIfMissing($request_id, $level);
+            return true;
+        } catch (Exception $e) {
+            $this->lastError = $e->getMessage();
+            return false;
+        }
     }
     
     /**

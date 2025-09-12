@@ -22,6 +22,32 @@ try {
     $account_id = $row['id'] ?? null;
   }
 
+  // Ensure current level has an approver assigned if missing (stabilizes "Unassigned" cases)
+  require_once __DIR__ . '/workflow_manager.php';
+  // Peek current level
+  $peek = $conn->prepare("SELECT current_approval_level FROM budget_database_schema.budget_request WHERE request_id = ?");
+  $peek->execute([$request_id]);
+  $currLevel = $peek->fetchColumn();
+  if ($currLevel) {
+    $wf = new WorkflowManager($conn);
+    // First, try to map via workflow; then if still null, carry-forward from last approved approver
+    $wf->ensureApproverForLevel($request_id, (int)$currLevel);
+    // If still unassigned at current level, assign from last approved
+    $check = $conn->prepare("SELECT approver_id FROM budget_database_schema.approval_progress WHERE request_id = ? AND approval_level = ? LIMIT 1");
+    $check->execute([$request_id, (int)$currLevel]);
+    $currAid = $check->fetchColumn();
+    if (!$currAid) {
+      // Use manager private logic via a light inline query since method is private; emulate carry-forward
+      $st = $conn->prepare("SELECT approver_id FROM budget_database_schema.approval_progress WHERE request_id = ? AND approval_level < ? AND status = 'approved' ORDER BY approval_level DESC LIMIT 1");
+      $st->execute([$request_id, (int)$currLevel]);
+      $last = $st->fetchColumn();
+      if ($last) {
+        $upd = $conn->prepare("UPDATE budget_database_schema.approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ? AND approver_id IS NULL");
+        $upd->execute([$last, $request_id, (int)$currLevel]);
+      }
+    }
+  }
+
   // request with current approver info
   $st = $conn->prepare("
     SELECT br.*, a.name AS requester_name, a.username_email AS requester_email,
@@ -35,7 +61,10 @@ try {
     LEFT JOIN budget_database_schema.campus c     ON br.campus_code = c.code
     LEFT JOIN budget_database_schema.approval_progress curr_ap ON br.request_id = curr_ap.request_id 
         AND curr_ap.approval_level = br.current_approval_level 
-        AND curr_ap.status = 'pending'
+        AND (
+              curr_ap.status = 'pending'
+           OR (br.status = 'more_info_requested' AND curr_ap.status = 'waiting')
+        )
     LEFT JOIN budget_database_schema.account curr_acc ON curr_ap.approver_id = curr_acc.id
     WHERE br.request_id = ?
   ");
@@ -65,7 +94,10 @@ try {
       LEFT JOIN budget_database_schema.campus c     ON br.campus_code = c.code
       LEFT JOIN budget_database_schema.approval_progress curr_ap ON br.request_id = curr_ap.request_id 
           AND curr_ap.approval_level = br.current_approval_level 
-          AND curr_ap.status = 'pending'
+          AND (
+                curr_ap.status = 'pending'
+             OR (br.status = 'more_info_requested' AND curr_ap.status = 'waiting')
+          )
       LEFT JOIN budget_database_schema.account curr_acc ON curr_ap.approver_id = curr_acc.id
       WHERE br.request_id = ?
     ");

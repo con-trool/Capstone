@@ -57,19 +57,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         require_once dirname(__DIR__) . '/workflow_manager.php';
         $workflow = new WorkflowManager($conn);
 
-        // Find the level that requested info
-        $stmt = $conn->prepare("SELECT approval_level FROM budget_database_schema.approval_progress WHERE request_id = ? AND status = 'request_info' ORDER BY approval_level DESC LIMIT 1");
+        // Find the level that requested info (supports legacy 'request_info' and new '[request_info]' tag on 'waiting')
+        $stmt = $conn->prepare("
+            SELECT approval_level 
+            FROM budget_database_schema.approval_progress 
+            WHERE request_id = ? 
+              AND (
+                    status = 'request_info' 
+                 OR (status = 'waiting' AND comments LIKE '[request_info]%')
+              )
+            ORDER BY approval_level DESC 
+            LIMIT 1
+        ");
         $stmt->execute([$request_id]);
         $requesting_level = $stmt->fetchColumn();
 
         if (!empty($requesting_level)) {
             $workflow->resumeWorkflowAfterInfoProvidedWithTransaction($request_id, (int)$requesting_level);
         } else {
-            // Fallback: if status is still more_info_requested but no row flagged, push back to pending
+            // Fallback: if header shows more_info_requested but no row flagged, push back to pending
             $stmt = $conn->prepare("UPDATE budget_database_schema.budget_request SET status = 'pending' WHERE request_id = ? AND status = 'more_info_requested'");
             $stmt->execute([$request_id]);
-            // Reset any request_info rows just in case
-            $stmt = $conn->prepare("UPDATE budget_database_schema.approval_progress SET status = 'pending' WHERE request_id = ? AND status = 'request_info'");
+            // Reset any rows tagged as info-request back to pending
+            $stmt = $conn->prepare("UPDATE budget_database_schema.approval_progress SET status = 'pending' WHERE request_id = ? AND (status = 'request_info' OR (status = 'waiting' AND comments LIKE '[request_info]%'))");
             $stmt->execute([$request_id]);
         }
 
