@@ -6,7 +6,11 @@ $host = "aws-1-ap-southeast-1.pooler.supabase.com";  // Supavisor Session Pooler
 $port = "5432";  // PostgreSQL port (Session Pooler)
 $database = "postgres";  // Default Supabase database name
 $user = "postgres.ofpajqubjoxvqsxldpvo";  // Session pooler username (project-scoped)
-$password = "nfrvNZjs2akopOVk";  // Your Supabase database password
+// Load password from local master.key file if present (gitignored). Fallback to dev value.
+$masterKeyPath = __DIR__ . DIRECTORY_SEPARATOR . 'master.key';
+if (is_readable($masterKeyPath)) {
+    $password = trim(file_get_contents($masterKeyPath));
+} 
 
 // Create connection using PDO for PostgreSQL
 try {
