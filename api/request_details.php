@@ -47,6 +47,32 @@ try {
     exit;
   }
 
+  // Auto-initialize workflow if not yet initialized so current assignment becomes available
+  if ($req['current_approval_level'] === null) {
+    require_once __DIR__ . '/workflow_manager.php';
+    $wf = new WorkflowManager($conn);
+    $wf->initializeWorkflow($request_id);
+    // Re-fetch request with current approver info after initialization
+    $st = $conn->prepare("
+      SELECT br.*, a.name AS requester_name, a.username_email AS requester_email,
+             d.college, d.budget_deck, c.name AS campus_name,
+             curr_ap.approver_id AS current_approver_id,
+             curr_acc.name AS current_approver_name,
+             curr_acc.role AS current_approver_role
+      FROM budget_database_schema.budget_request br
+      LEFT JOIN budget_database_schema.account a   ON br.account_id = a.id
+      LEFT JOIN budget_database_schema.department d ON br.department_code = d.code
+      LEFT JOIN budget_database_schema.campus c     ON br.campus_code = c.code
+      LEFT JOIN budget_database_schema.approval_progress curr_ap ON br.request_id = curr_ap.request_id 
+          AND curr_ap.approval_level = br.current_approval_level 
+          AND curr_ap.status = 'pending'
+      LEFT JOIN budget_database_schema.account curr_acc ON curr_ap.approver_id = curr_acc.id
+      WHERE br.request_id = ?
+    ");
+    $st->execute([$request_id]);
+    $req = $st->fetch(PDO::FETCH_ASSOC) ?: $req;
+  }
+
   // if requester, restrict to own requests (optional but safer)
   if ($role === 'requester' && $account_id && $req['account_id'] != $account_id) {
     http_response_code(403);

@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-require_once '../workflow_manager.php';
+require_once __DIR__ . '/workflow_manager.php';
 $workflow = new WorkflowManager($conn);
 
 $request_id = $_POST['request_id'] ?? '';
@@ -72,6 +72,17 @@ try {
         }
     }
 
+    // If row exists but is unassigned (NULL approver_id), assign to current user when role matches expected
+    if (empty($request_data['approver_id'])) {
+        $stmt = $conn->prepare("SELECT approver_role FROM budget_database_schema.approval_workflow WHERE department_code = ? AND approval_level = ? LIMIT 1");
+        $stmt->execute([$request_data['department_code'], $request_data['approval_level']]);
+        $expected_role = $stmt->fetchColumn();
+        if ($expected_role && $expected_role === $_SESSION['role']) {
+            $stmt = $conn->prepare("UPDATE budget_database_schema.approval_progress SET approver_id = ? WHERE request_id = ? AND approval_level = ?");
+            $stmt->execute([$approver_id, $request_id, $request_data['approval_level']]);
+        }
+    }
+
     if ($request_data['workflow_complete']) {
         throw new Exception('Request workflow has already been completed');
     }
@@ -97,7 +108,19 @@ try {
     $success = $workflow->processApproval($request_id, $approver_id, $action, $comments);
 
     if (!$success) {
-        throw new Exception('Failed to process approval');
+        // Gather debug context to help troubleshoot why it failed
+        $dbg = [];
+        $dbg['request_data'] = $request_data;
+        $dbg['session_role'] = $_SESSION['role'] ?? null;
+        $dbg['approver_id'] = $approver_id;
+        // Snapshot current level rows
+        $stDbg = $conn->prepare("SELECT * FROM budget_database_schema.approval_progress WHERE request_id = ? AND approval_level = ? ORDER BY approver_id NULLS FIRST");
+        $stDbg->execute([$request_id, $request_data['approval_level']]);
+        $dbg['approval_progress_rows'] = $stDbg->fetchAll(PDO::FETCH_ASSOC);
+
+        $dbg['workflow_last_error'] = $workflow->lastError ?? null;
+        echo json_encode(['success' => false, 'message' => 'Failed to process approval for request ' . $request_id, 'debug' => $dbg]);
+        exit;
     }
 
     $stmt = $conn->prepare("SELECT status, current_approval_level, total_approval_levels, workflow_complete FROM budget_database_schema.budget_request WHERE request_id = ?");

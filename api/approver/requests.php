@@ -9,7 +9,8 @@ if (!isset($_SESSION['username']) || !in_array($_SESSION['role'], $allowed_roles
     exit;
 }
 
-require_once '../../workflow_manager.php';
+$__wf = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'workflow_manager.php';
+require_once $__wf;
 $workflow = new WorkflowManager($conn);
 
 $username = $_SESSION['username'];

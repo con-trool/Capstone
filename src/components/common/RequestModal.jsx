@@ -123,22 +123,37 @@ export default function RequestModal({ request, onClose, userRole = "requester" 
 
   async function handleApproval(action) {
     const comments = document.getElementById("modal-approval-comments")?.value || "";
+    console.log("handleApproval", action, comments, req.request_id);
     try {
-      const body = { request_id: req.request_id, action, comments };
-      if (isVPFinalPending) body.approved_amounts = approvedMap;
-      const res = await fetch("/api/approvals/act.php", {
+      const fd = new FormData();
+      fd.append("request_id", req.request_id);
+      fd.append("action", action);
+      fd.append("comments", comments);
+      if (isVPFinalPending) {
+        // Encode approved amounts as bracketed fields for PHP (approved_amounts[row_num])
+        Object.entries(approvedMap || {}).forEach(([row, val]) => {
+          if (val !== undefined && val !== null) {
+            fd.append(`approved_amounts[${row}]`, String(val));
+          }
+        });
+      }
+      const res = await fetch("/api/process_approval.php", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: fd,
       });
-      const j = await res.json();
-      if (j.success) {
+      const raw = await res.text();
+      let j;
+      try { j = JSON.parse(raw); } catch { throw new Error(`Bad JSON (HTTP ${res.status}): ${raw.slice(0,200)}`); }
+      if (res.ok && j.success) {
         alert("Action recorded successfully.");
         onClose?.();
+        // Refresh the page to show updated state
+        window.location.reload();
       } else {
-        alert(j.message || "Failed to process action.");
+        alert((j && j.message) || "Failed to process action.");
       }
-    } catch {
+    } catch (e) {
+      console.error(e);
       alert("An error occurred while processing your action.");
     }
   }

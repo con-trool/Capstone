@@ -148,6 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        // Initialize approval workflow so current assignment is available immediately
+        require_once dirname(__DIR__) . '/workflow_manager.php';
+        $workflow = new WorkflowManager($conn);
+        $workflow->initializeWorkflow($request_id);
+
         $conn->commit();
 
         echo json_encode([

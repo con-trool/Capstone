@@ -54,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
         // If this request was in 'more_info_requested', resume the workflow
-        require_once '../../workflow_manager.php';
+        require_once dirname(__DIR__) . '/workflow_manager.php';
         $workflow = new WorkflowManager($conn);
 
         // Find the level that requested info

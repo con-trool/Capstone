@@ -1,7 +1,7 @@
 <?php
-// Legacy copy kept for reference; new active manager is at api/workflow_manager.php
 class WorkflowManager {
     private $pdo;
+    public $lastError = null;
     
     public function __construct($pdo) {
         $this->pdo = $pdo;
@@ -148,15 +148,27 @@ class WorkflowManager {
                 ");
                 $stmt->execute([$request_id]);
             } else if ($action === 'request_info') {
-                // Mark current level as requesting info
+                // DB constraint disallows a custom 'request_info' status on approval_progress.
+                // Use 'waiting' as the status but prefix comments to mark info-request.
+                $taggedComments = '[request_info] ' . (string)$comments;
+                // Prefer matching approver_id; fall back to level-only pending row
                 $stmt = $this->pdo->prepare("
                     UPDATE budget_database_schema.approval_progress 
-                    SET status = 'request_info', comments = ?, timestamp = NOW() 
+                    SET status = 'waiting', comments = ?, timestamp = NOW() 
                     WHERE request_id = ? AND approval_level = ? AND approver_id = ?
                 ");
-                $stmt->execute([$comments, $request_id, $current_level, $approver_id]);
+                $stmt->execute([$taggedComments, $request_id, $current_level, $approver_id]);
+
+                if ($stmt->rowCount() === 0) {
+                    $fallback = $this->pdo->prepare("
+                        UPDATE budget_database_schema.approval_progress 
+                        SET status = 'waiting', comments = ?, timestamp = NOW() 
+                        WHERE request_id = ? AND approval_level = ? AND status = 'pending'
+                    ");
+                    $fallback->execute([$taggedComments, $request_id, $current_level]);
+                }
                 
-                // Request more info - pause workflow
+                // Pause main workflow
                 $stmt = $this->pdo->prepare("
                     UPDATE budget_database_schema.budget_request 
                     SET status = 'more_info_requested' 
@@ -171,6 +183,8 @@ class WorkflowManager {
         } catch (Exception $e) {
             $this->pdo->rollBack();
             error_log("Approval processing failed: " . $e->getMessage());
+            // Provide structured reason back to caller
+            $this->lastError = $e->getMessage();
             return false;
         }
     }
@@ -336,3 +350,5 @@ class WorkflowManager {
     }
 }
 ?>
+
+
